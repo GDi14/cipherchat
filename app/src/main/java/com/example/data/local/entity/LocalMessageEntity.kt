@@ -25,5 +25,8 @@ data class LocalMessageEntity(
     val attachmentMimeType: String? = null,
     val attachmentFileName: String? = null,
     val attachmentFileSize: Long = 0L,
-    val isOutgoing: Boolean = true
+    val isOutgoing: Boolean = true,
+    val replyToMessageId: String? = null,
+    val replyToSenderName: String? = null,
+    val replyToText: String? = null
 )

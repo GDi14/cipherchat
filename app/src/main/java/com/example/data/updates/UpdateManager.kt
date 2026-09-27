@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
@@ -67,71 +68,138 @@ class UpdateManager(
                 return@withContext
             }
 
-            val url = "https://api.github.com/repos/$cleanRepo/releases/latest"
-            val request = Request.Builder()
-                .url(url)
+            val candidateReleases = mutableListOf<JSONObject>()
+
+            // 1. Query /releases first (includes pre-releases and beta tags)
+            val urlAll = "https://api.github.com/repos/$cleanRepo/releases"
+            val requestAll = Request.Builder()
+                .url(urlAll)
                 .addHeader("Accept", "application/vnd.github.v3+json")
                 .addHeader("User-Agent", "CipherChat-Android")
                 .build()
 
-            okHttpClient.newCall(request).execute().use { response ->
-                if (response.code == 404) {
-                    _updateState.value = UpdateCheckState.Error("No releases found on GitHub repository '$cleanRepo'.")
-                    return@withContext
-                }
-                if (!response.isSuccessful) {
-                    _updateState.value = UpdateCheckState.Error("GitHub API error: ${response.code} ${response.message}")
-                    return@withContext
-                }
-
-                val responseBody = response.body?.string()
-                    ?: throw IllegalStateException("Empty response from GitHub API")
-
-                val json = JSONObject(responseBody)
-                val tagName = json.optString("tag_name", "")
-                val title = json.optString("name", tagName)
-                val notes = json.optString("body", "No release notes provided.")
-                val assets = json.optJSONArray("assets")
-
-                var apkUrl: String? = null
-                var apkName = "update.apk"
-                var apkSize = 0L
-
-                if (assets != null) {
-                    for (i in 0 until assets.length()) {
-                        val asset = assets.getJSONObject(i)
-                        val name = asset.optString("name", "")
-                        if (name.endsWith(".apk", ignoreCase = true)) {
-                            apkUrl = asset.optString("browser_download_url")
-                            apkName = name
-                            apkSize = asset.optLong("size", 0L)
-                            break
+            try {
+                okHttpClient.newCall(requestAll).execute().use { response ->
+                    if (response.code == 404) {
+                        _updateState.value = UpdateCheckState.Error(
+                            "Repository '$cleanRepo' was not found or is private on GitHub. Ensure the repository exists and is public."
+                        )
+                        return@withContext
+                    }
+                    if (response.isSuccessful && response.body != null) {
+                        val array = JSONArray(response.body!!.string())
+                        for (i in 0 until array.length()) {
+                            candidateReleases.add(array.getJSONObject(i))
                         }
                     }
                 }
+            } catch (e: Exception) {
+                // Proceed to fallback
+            }
 
-                if (apkUrl.isNullOrEmpty()) {
-                    _updateState.value = UpdateCheckState.Error("Latest release found ($tagName), but it does not have an APK file attached.")
-                    return@withContext
+            // 2. Fallback to /releases/latest if /releases returned nothing
+            if (candidateReleases.isEmpty()) {
+                val urlLatest = "https://api.github.com/repos/$cleanRepo/releases/latest"
+                val requestLatest = Request.Builder()
+                    .url(urlLatest)
+                    .addHeader("Accept", "application/vnd.github.v3+json")
+                    .addHeader("User-Agent", "CipherChat-Android")
+                    .build()
+
+                try {
+                    okHttpClient.newCall(requestLatest).execute().use { response ->
+                        if (response.isSuccessful && response.body != null) {
+                            candidateReleases.add(JSONObject(response.body!!.string()))
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Ignore
                 }
+            }
 
-                val currentVersion = BuildConfig.VERSION_NAME
-                val isNewer = isVersionNewer(tagName, currentVersion)
+            if (candidateReleases.isEmpty()) {
+                _updateState.value = UpdateCheckState.Error(
+                    "No published releases found on 'https://github.com/$cleanRepo'. Create a release at github.com/$cleanRepo/releases/new and attach an .apk file."
+                )
+                return@withContext
+            }
 
-                if (isNewer) {
-                    _updateState.value = UpdateCheckState.UpdateAvailable(
-                        GithubRelease(
-                            tagName = tagName,
-                            title = title,
-                            notes = notes,
-                            apkDownloadUrl = apkUrl,
-                            apkFileName = apkName,
-                            apkSizeBytes = apkSize
-                        )
+            // 3. Find the candidate release with the highest version tag that has an attached .apk
+            var bestReleaseJson: JSONObject? = null
+            var bestTag = ""
+
+            for (release in candidateReleases) {
+                val assets = release.optJSONArray("assets") ?: continue
+                var hasApk = false
+                for (i in 0 until assets.length()) {
+                    if (assets.getJSONObject(i).optString("name", "").endsWith(".apk", ignoreCase = true)) {
+                        hasApk = true
+                        break
+                    }
+                }
+                if (!hasApk) continue
+
+                val tag = release.optString("tag_name", "")
+                if (bestReleaseJson == null || isVersionNewer(tag, bestTag)) {
+                    bestReleaseJson = release
+                    bestTag = tag
+                }
+            }
+
+            if (bestReleaseJson == null) {
+                _updateState.value = UpdateCheckState.Error(
+                    "Releases found on '$cleanRepo', but none have an .apk file attached. Upload your compiled APK to your release on GitHub."
+                )
+                return@withContext
+            }
+
+            val responseJson = bestReleaseJson
+
+            val tagName = responseJson.optString("tag_name", "")
+            val title = responseJson.optString("name", tagName)
+            val notes = responseJson.optString("body", "No release notes provided.")
+            val assets = responseJson!!.optJSONArray("assets")
+
+            var apkUrl: String? = null
+            var apkName = "update.apk"
+            var apkSize = 0L
+
+            if (assets != null) {
+                for (i in 0 until assets.length()) {
+                    val asset = assets.getJSONObject(i)
+                    val name = asset.optString("name", "")
+                    if (name.endsWith(".apk", ignoreCase = true)) {
+                        apkUrl = asset.optString("browser_download_url")
+                        apkName = name
+                        apkSize = asset.optLong("size", 0L)
+                        break
+                    }
+                }
+            }
+
+            if (apkUrl.isNullOrEmpty()) {
+                _updateState.value = UpdateCheckState.Error(
+                    "Release '$tagName' found on '$cleanRepo', but it has no .apk file attached. Upload your compiled APK to the release on GitHub."
+                )
+                return@withContext
+            }
+
+            val currentVersion = BuildConfig.VERSION_NAME
+            val isNewer = isVersionNewer(tagName, currentVersion)
+
+            if (isNewer) {
+                _updateState.value = UpdateCheckState.UpdateAvailable(
+                    GithubRelease(
+                        tagName = tagName,
+                        title = title,
+                        notes = notes,
+                        apkDownloadUrl = apkUrl,
+                        apkFileName = apkName,
+                        apkSizeBytes = apkSize
                     )
-                } else {
-                    _updateState.value = UpdateCheckState.UpToDate(currentVersion)
-                }
+                )
+            } else {
+                _updateState.value = UpdateCheckState.UpToDate(currentVersion)
             }
         } catch (e: Exception) {
             _updateState.value = UpdateCheckState.Error("Failed to check for updates: ${e.localizedMessage ?: e.message}")
@@ -233,8 +301,12 @@ class UpdateManager(
         val cleanTag = releaseTag.trim().removePrefix("v").removePrefix("V")
         val cleanCurrent = currentVersion.trim().removePrefix("v").removePrefix("V")
 
-        val tagParts = cleanTag.split(".").mapNotNull { it.toIntOrNull() }
-        val currentParts = cleanCurrent.split(".").mapNotNull { it.toIntOrNull() }
+        val tagParts = cleanTag.split(".").map { segment ->
+            segment.takeWhile { it.isDigit() }.toIntOrNull() ?: 0
+        }
+        val currentParts = cleanCurrent.split(".").map { segment ->
+            segment.takeWhile { it.isDigit() }.toIntOrNull() ?: 0
+        }
 
         val maxLen = maxOf(tagParts.size, currentParts.size)
         for (i in 0 until maxLen) {

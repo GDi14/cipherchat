@@ -243,11 +243,18 @@ class FirebaseChatRepository(
         }
 
         try {
-            // Decrypt with Signal Protocol
+            var senderIdentityKey = contactDao.getContactById(senderId)?.identityKey
+            if (senderIdentityKey.isNullOrBlank()) {
+                val bundle = fetchRecipientBundle(senderId)
+                senderIdentityKey = bundle?.identityKey
+            }
+
+            // Decrypt with Signal Protocol / Standard EC
             val decryptedPlaintext = signalProtocolManager.decryptMessage(
                 senderId = senderId,
                 base64Ciphertext = encryptedPayload,
-                messageType = messageType
+                messageType = messageType,
+                senderIdentityKeyBase64 = senderIdentityKey
             )
 
             val content = DecryptedContent.fromJsonString(decryptedPlaintext)
@@ -283,6 +290,8 @@ class FirebaseChatRepository(
                 }
             }
 
+            val textContent = content as? DecryptedContent.Text
+
             val entity = LocalMessageEntity(
                 id = messageId,
                 conversationUserId = senderId,
@@ -297,7 +306,10 @@ class FirebaseChatRepository(
                 attachmentMimeType = mimeType,
                 attachmentFileName = fileName,
                 attachmentFileSize = fileSize,
-                isOutgoing = false
+                isOutgoing = false,
+                replyToMessageId = textContent?.replyToMessageId,
+                replyToSenderName = textContent?.replyToSenderName,
+                replyToText = textContent?.replyToText
             )
 
             messageDao.insertMessage(entity)
@@ -344,7 +356,10 @@ class FirebaseChatRepository(
 
     suspend fun sendTextMessage(
         recipientUserId: String,
-        text: String
+        text: String,
+        replyToMessageId: String? = null,
+        replyToSenderName: String? = null,
+        replyToText: String? = null
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val userProfile = userProfileDao.getUserProfile()
@@ -353,8 +368,13 @@ class FirebaseChatRepository(
             val recipientBundle = fetchRecipientBundle(recipientUserId)
                 ?: return@withContext Result.failure(IllegalStateException("Recipient not found or not yet registered on Firebase"))
 
-            // Encrypt using Signal Protocol
-            val payload = DecryptedContent.Text(text).toJsonString()
+            // Encrypt using Signal Protocol / Standard EC
+            val payload = DecryptedContent.Text(
+                text = text,
+                replyToMessageId = replyToMessageId,
+                replyToSenderName = replyToSenderName,
+                replyToText = replyToText
+            ).toJsonString()
             val encrypted = signalProtocolManager.encryptMessage(recipientBundle, payload)
 
             val messageId = UUID.randomUUID().toString()
@@ -370,7 +390,10 @@ class FirebaseChatRepository(
                 timestamp = now,
                 status = "SENDING",
                 hasAttachment = false,
-                isOutgoing = true
+                isOutgoing = true,
+                replyToMessageId = replyToMessageId,
+                replyToSenderName = replyToSenderName,
+                replyToText = replyToText
             )
             messageDao.insertMessage(localEntity)
             contactDao.updateLastMessage(recipientUserId, text, now)

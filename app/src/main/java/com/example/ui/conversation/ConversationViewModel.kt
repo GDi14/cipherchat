@@ -64,16 +64,42 @@ class ConversationViewModel(
         _errorMessage.value = null
     }
 
+    private val _replyingToMessage = MutableStateFlow<LocalMessageEntity?>(null)
+    val replyingToMessage: StateFlow<LocalMessageEntity?> = _replyingToMessage.asStateFlow()
+
+    fun setReplyingTo(message: LocalMessageEntity) {
+        _replyingToMessage.value = message
+    }
+
+    fun cancelReply() {
+        _replyingToMessage.value = null
+    }
+
     fun sendText(text: String) {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
+
+        val replyTarget = _replyingToMessage.value
+        val replySenderName = when {
+            replyTarget == null -> null
+            replyTarget.isOutgoing -> "You"
+            else -> _friendContact.value?.displayName ?: "Friend"
+        }
 
         viewModelScope.launch {
             _isSending.value = true
             _errorMessage.value = null
 
-            val result = chatRepository.sendTextMessage(friendUserId, trimmed)
-            if (result.isFailure) {
+            val result = chatRepository.sendTextMessage(
+                recipientUserId = friendUserId,
+                text = trimmed,
+                replyToMessageId = replyTarget?.id,
+                replyToSenderName = replySenderName,
+                replyToText = replyTarget?.plaintext
+            )
+            if (result.isSuccess) {
+                _replyingToMessage.value = null
+            } else {
                 val err = result.exceptionOrNull()
                 _errorMessage.value = err?.localizedMessage ?: "Failed to send message"
             }

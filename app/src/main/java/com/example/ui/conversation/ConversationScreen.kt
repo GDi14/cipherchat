@@ -32,6 +32,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
@@ -95,6 +96,7 @@ fun ConversationScreen(
     val friendContact by viewModel.friendContact.collectAsStateWithLifecycle()
     val isSending by viewModel.isSending.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+    val replyingToMessage by viewModel.replyingToMessage.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     var inputText by remember { mutableStateOf("") }
@@ -291,7 +293,56 @@ fun ConversationScreen(
                                 message = message,
                                 onOpenAttachment = { path ->
                                     openFileInExternalApp(context, path)
+                                },
+                                onReply = {
+                                    viewModel.setReplyingTo(message)
                                 }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Replying Banner if active
+            replyingToMessage?.let { reply ->
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    tonalElevation = 4.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(4.dp)
+                                .height(36.dp)
+                                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp))
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Replying to ${if (reply.isOutgoing) "You" else friendContact?.displayName ?: "Friend"}",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = reply.plaintext,
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        IconButton(onClick = { viewModel.cancelReply() }) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Cancel reply",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -457,10 +508,10 @@ fun ConversationScreen(
 @Composable
 fun MessageBubble(
     message: LocalMessageEntity,
-    onOpenAttachment: (String) -> Unit
+    onOpenAttachment: (String) -> Unit,
+    onReply: () -> Unit = {}
 ) {
     val isOutgoing = message.isOutgoing
-    val alignment = if (isOutgoing) Alignment.CenterEnd else Alignment.CenterStart
     val bubbleColor = if (isOutgoing) OutgoingBubbleDark else IncomingBubbleDark
     val textColor = MaterialTheme.colorScheme.onSurface
 
@@ -470,10 +521,26 @@ fun MessageBubble(
         RoundedCornerShape(16.dp, 16.dp, 16.dp, 3.dp)
     }
 
-    Box(
+    Row(
         modifier = Modifier.fillMaxWidth(),
-        contentAlignment = alignment
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
     ) {
+        if (isOutgoing) {
+            IconButton(
+                onClick = onReply,
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Reply,
+                    contentDescription = "Reply",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(4.dp))
+        }
+
         Surface(
             shape = bubbleShape,
             color = bubbleColor,
@@ -481,6 +548,47 @@ fun MessageBubble(
             modifier = Modifier.widthIn(min = 80.dp, max = 300.dp)
         ) {
             Column(modifier = Modifier.padding(10.dp)) {
+                // Quoted Reply container if present
+                if (!message.replyToText.isNullOrBlank()) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(3.dp)
+                                    .height(32.dp)
+                                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp))
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = message.replyToSenderName ?: "Reply",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = message.replyToText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // Attachment preview if present
                 if (message.hasAttachment) {
                     val localPath = message.attachmentLocalPath
@@ -576,6 +684,21 @@ fun MessageBubble(
                         DeliveryStatusIcon(status = statusEnum)
                     }
                 }
+            }
+        }
+
+        if (!isOutgoing) {
+            Spacer(modifier = Modifier.width(4.dp))
+            IconButton(
+                onClick = onReply,
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Reply,
+                    contentDescription = "Reply",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.size(18.dp)
+                )
             }
         }
     }

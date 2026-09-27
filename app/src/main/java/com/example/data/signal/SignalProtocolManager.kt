@@ -279,7 +279,8 @@ class SignalProtocolManager(
     suspend fun decryptMessage(
         senderId: String,
         base64Ciphertext: String,
-        messageType: Int
+        messageType: Int,
+        senderIdentityKeyBase64: String? = null
     ): String = withContext(Dispatchers.IO) {
         try {
             val store = getOrInitStore()
@@ -317,8 +318,12 @@ class SignalProtocolManager(
         val profile = currentProfile ?: userProfileDao.getUserProfile()
         val myPrivateKeyBytes = extractPrivateKeyFromComposite(profile?.identityKeyPairBytes)
         val senderContact = signalStoreDao.getIdentity(senderId + ":1")
-        val senderPubKeyBytes = senderContact?.identityKeyBytes
-            ?: Base64.decode(base64Ciphertext, Base64.NO_WRAP)
+
+        val senderPubKeyBytes = when {
+            senderContact?.identityKeyBytes != null -> senderContact.identityKeyBytes
+            !senderIdentityKeyBase64.isNullOrBlank() -> Base64.decode(senderIdentityKeyBase64, Base64.NO_WRAP)
+            else -> throw IllegalArgumentException("Missing sender identity key for decryption")
+        }
 
         val secretKey = StandardCryptoHelper.deriveSharedSecret(myPrivateKeyBytes, senderPubKeyBytes)
         StandardCryptoHelper.decrypt(secretKey, base64Ciphertext)

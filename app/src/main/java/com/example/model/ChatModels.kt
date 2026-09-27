@@ -3,7 +3,13 @@ package com.example.model
 import org.json.JSONObject
 
 sealed class DecryptedContent {
-    data class Text(val text: String) : DecryptedContent()
+    data class Text(
+        val text: String,
+        val replyToMessageId: String? = null,
+        val replyToSenderName: String? = null,
+        val replyToText: String? = null
+    ) : DecryptedContent()
+
     data class Attachment(
         val storagePath: String,
         val fileName: String,
@@ -20,6 +26,9 @@ sealed class DecryptedContent {
             is Text -> {
                 json.put("type", "text")
                 json.put("text", text)
+                if (replyToMessageId != null) json.put("replyToMessageId", replyToMessageId)
+                if (replyToSenderName != null) json.put("replyToSenderName", replyToSenderName)
+                if (replyToText != null) json.put("replyToText", replyToText)
             }
             is Attachment -> {
                 json.put("type", "attachment")
@@ -49,7 +58,12 @@ sealed class DecryptedContent {
                         aesIv = json.getString("aesIv"),
                         caption = json.optString("caption", "")
                     )
-                    else -> Text(json.optString("text", jsonStr))
+                    else -> Text(
+                        text = json.optString("text", jsonStr),
+                        replyToMessageId = json.optString("replyToMessageId").ifEmpty { null },
+                        replyToSenderName = json.optString("replyToSenderName").ifEmpty { null },
+                        replyToText = json.optString("replyToText").ifEmpty { null }
+                    )
                 }
             } catch (e: Exception) {
                 // If not JSON or legacy plaintext
