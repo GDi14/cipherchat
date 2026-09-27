@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "213675511260",
+    "project_id": "ciphertext-a4739",
+    "storage_bucket": "ciphertext-a4739.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:213675511260:android:905d5e9f3012cfd5abd319",
+        "android_client_info": {
+          "package_name": "com.aistudio.cipherchat.vxmknq"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAjX4sugK-xoWg23L2kEq6UIU53AZpO2Eg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

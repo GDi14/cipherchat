@@ -1,0 +1,6 @@
+{
+  "name": "CipherChat",
+  "description": "Private end-to-end encrypted friends group chat powered by Signal Protocol and Firebase",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
