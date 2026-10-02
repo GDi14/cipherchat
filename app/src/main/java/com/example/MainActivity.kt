@@ -9,6 +9,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
@@ -31,6 +37,10 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.ui.chatlist.ChatListScreen
 import com.example.ui.chatlist.ChatListViewModel
+import com.example.ui.components.ExpressiveLoadingIndicator
+import com.example.ui.components.M3EmphasizedEasing
+import com.example.ui.components.M3MotionDurationLong1
+import com.example.ui.components.M3MotionDurationMedium2
 import com.example.ui.conversation.ConversationScreen
 import com.example.ui.conversation.ConversationViewModel
 import com.example.ui.onboarding.OnboardingScreen
@@ -89,7 +99,7 @@ fun CipherChatNavApp(app: CipherChatApplication) {
                 .background(MaterialTheme.colorScheme.background),
             contentAlignment = Alignment.Center
         ) {
-            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+            ExpressiveLoadingIndicator(size = 56.dp)
         }
         return
     }
@@ -98,7 +108,31 @@ fun CipherChatNavApp(app: CipherChatApplication) {
 
     NavHost(
         navController = navController,
-        startDestination = startRoute!!
+        startDestination = startRoute!!,
+        enterTransition = {
+            slideInHorizontally(
+                initialOffsetX = { it },
+                animationSpec = tween(M3MotionDurationLong1, easing = M3EmphasizedEasing)
+            ) + fadeIn(animationSpec = tween(M3MotionDurationMedium2))
+        },
+        exitTransition = {
+            slideOutHorizontally(
+                targetOffsetX = { -it / 3 },
+                animationSpec = tween(M3MotionDurationLong1, easing = M3EmphasizedEasing)
+            ) + fadeOut(animationSpec = tween(M3MotionDurationMedium2))
+        },
+        popEnterTransition = {
+            slideInHorizontally(
+                initialOffsetX = { -it / 3 },
+                animationSpec = tween(M3MotionDurationLong1, easing = M3EmphasizedEasing)
+            ) + fadeIn(animationSpec = tween(M3MotionDurationMedium2))
+        },
+        popExitTransition = {
+            slideOutHorizontally(
+                targetOffsetX = { it },
+                animationSpec = tween(M3MotionDurationLong1, easing = M3EmphasizedEasing)
+            ) + fadeOut(animationSpec = tween(M3MotionDurationMedium2))
+        }
     ) {
         composable("onboarding") {
             val vm: OnboardingViewModel = viewModel(

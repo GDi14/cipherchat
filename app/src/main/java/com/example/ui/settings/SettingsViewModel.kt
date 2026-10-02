@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.BuildConfig
+import com.example.data.cloud.CloudinaryStorageManager
 import com.example.data.local.dao.UserProfileDao
 import com.example.data.local.entity.LocalUserProfileEntity
 import com.example.data.updates.GithubRelease
@@ -32,6 +33,31 @@ class SettingsViewModel(
 
     private val _needsInstallPermission = MutableStateFlow(false)
     val needsInstallPermission: StateFlow<Boolean> = _needsInstallPermission.asStateFlow()
+
+    // Cloudinary Inputs
+    private val _cloudName = MutableStateFlow("")
+    val cloudName: StateFlow<String> = _cloudName.asStateFlow()
+
+    private val _apiKey = MutableStateFlow("")
+    val apiKey: StateFlow<String> = _apiKey.asStateFlow()
+
+    private val _apiSecret = MutableStateFlow("")
+    val apiSecret: StateFlow<String> = _apiSecret.asStateFlow()
+
+    fun loadCloudinaryCredentials(context: Context) {
+        val manager = CloudinaryStorageManager(context)
+        _cloudName.value = manager.cloudName
+        _apiKey.value = manager.apiKey
+        _apiSecret.value = manager.apiSecret
+    }
+
+    fun saveCloudinaryCredentials(context: Context, name: String, key: String, secret: String) {
+        val manager = CloudinaryStorageManager(context)
+        manager.setCredentials(name, key, secret)
+        _cloudName.value = name
+        _apiKey.value = key
+        _apiSecret.value = secret
+    }
 
     fun updateRepoInput(newRepo: String) {
         _repoInput.value = newRepo

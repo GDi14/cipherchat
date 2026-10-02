@@ -3,6 +3,7 @@ package com.example.data.firebase
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import com.example.data.cloud.CloudinaryStorageManager
 import com.example.data.crypto.AttachmentCrypto
 import com.example.data.crypto.EncryptedFileData
 import com.example.data.local.dao.ContactDao
@@ -435,8 +436,22 @@ class FirebaseChatRepository(
             // AES-256-GCM symmetric encryption on device before upload!
             val encryptedData = AttachmentCrypto.encryptBytes(bytes)
             val fileId = UUID.randomUUID().toString()
-            val storagePath = "attachments/$fileId.bin"
 
+            // Check if Cloudinary is configured
+            val cloudinaryStorage = CloudinaryStorageManager(context)
+            if (cloudinaryStorage.isConfigured()) {
+                val cloudResult = cloudinaryStorage.uploadEncryptedAttachment(encryptedData.encryptedBytes, fileName)
+                if (cloudResult.isSuccess) {
+                    val cloudinaryUrl = cloudResult.getOrThrow()
+                    return@withContext Pair(StorageUploadResult.Success(cloudinaryUrl), encryptedData)
+                } else {
+                    val errReason = cloudResult.exceptionOrNull()?.message ?: "Cloudinary upload failed"
+                    Log.e(tag, "Cloudinary upload failed: $errReason", cloudResult.exceptionOrNull())
+                    return@withContext Pair(StorageUploadResult.Failure(errReason), null)
+                }
+            }
+
+            val storagePath = "attachments/$fileId.bin"
             val storageRef = FirebaseStorage.getInstance().reference.child(storagePath)
 
             try {
@@ -445,13 +460,13 @@ class FirebaseChatRepository(
             } catch (storageEx: StorageException) {
                 Log.e(tag, "Firebase Storage exception", storageEx)
                 Pair(
-                    StorageUploadResult.Failure("File sharing isn't set up yet — enable Firebase Storage in the console (Blaze plan required)"),
+                    StorageUploadResult.Failure("File sharing storage failure — configure Cloudinary credentials or enable Firebase Storage in console"),
                     null
                 )
             } catch (ex: Exception) {
                 Log.e(tag, "Storage upload exception", ex)
                 Pair(
-                    StorageUploadResult.Failure("File sharing isn't set up yet — enable Firebase Storage in the console"),
+                    StorageUploadResult.Failure("Storage upload failed — check your connection or Cloudinary configuration in Settings"),
                     null
                 )
             }
@@ -560,10 +575,19 @@ class FirebaseChatRepository(
     ) {
         repoScope.launch {
             try {
-                val storageRef = FirebaseStorage.getInstance().reference.child(storagePath)
-                // Download up to 20MB
-                val maxDownloadBytes: Long = 20 * 1024 * 1024
-                val encryptedBytes = storageRef.getBytes(maxDownloadBytes).await()
+                val encryptedBytes = if (storagePath.startsWith("http://") || storagePath.startsWith("https://")) {
+                    val cloudinaryStorage = CloudinaryStorageManager(context)
+                    val downloadResult = cloudinaryStorage.downloadEncryptedAttachment(storagePath)
+                    if (downloadResult.isSuccess) {
+                        downloadResult.getOrThrow()
+                    } else {
+                        throw downloadResult.exceptionOrNull() ?: IllegalStateException("Failed to download from Cloudinary")
+                    }
+                } else {
+                    val storageRef = FirebaseStorage.getInstance().reference.child(storagePath)
+                    val maxDownloadBytes: Long = 20 * 1024 * 1024
+                    storageRef.getBytes(maxDownloadBytes).await()
+                }
 
                 // Decrypt using AES-256-GCM key and IV received inside Signal message
                 val decryptedBytes = AttachmentCrypto.decryptBytes(encryptedBytes, aesKey, aesIv)
@@ -600,6 +624,48 @@ class FirebaseChatRepository(
             }
             file
         } catch (e: Exception) {
+            null
+        }
+    }
+
+    // --- Typing Indicators ---
+
+    fun setTypingStatus(currentUserId: String, recipientUserId: String, isTyping: Boolean) {
+        try {
+            val docRef = firestore.collection("typing").document("${currentUserId}_${recipientUserId}")
+            if (isTyping) {
+                docRef.set(
+                    mapOf(
+                        "senderId" to currentUserId,
+                        "recipientId" to recipientUserId,
+                        "isTyping" to true,
+                        "timestamp" to System.currentTimeMillis()
+                    )
+                )
+            } else {
+                docRef.delete()
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to update typing status", e)
+        }
+    }
+
+    fun listenToTypingStatus(friendUserId: String, currentUserId: String, onTypingChanged: (Boolean) -> Unit): ListenerRegistration? {
+        return try {
+            firestore.collection("typing")
+                .document("${friendUserId}_${currentUserId}")
+                .addSnapshotListener { snapshot, e ->
+                    if (e != null || snapshot == null || !snapshot.exists()) {
+                        onTypingChanged(false)
+                        return@addSnapshotListener
+                    }
+                    val isTyping = snapshot.getBoolean("isTyping") ?: false
+                    val timestamp = snapshot.getLong("timestamp") ?: 0L
+                    val isRecent = (System.currentTimeMillis() - timestamp) < 8_000 // 8 sec validity
+                    onTypingChanged(isTyping && isRecent)
+                }
+        } catch (e: Exception) {
+            Log.w(tag, "Error setting up typing listener", e)
             null
         }
     }

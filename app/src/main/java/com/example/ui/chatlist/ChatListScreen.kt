@@ -1,10 +1,14 @@
 package com.example.ui.chatlist
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,15 +20,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -33,30 +36,33 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.local.entity.LocalContactEntity
-import com.example.ui.components.AvatarView
-import com.example.ui.components.ErrorStateCard
-import com.example.ui.components.LoadingStateView
+import com.example.ui.components.ExpressiveAvatar
+import com.example.ui.components.ExpressiveButtonGroup
+import com.example.ui.components.ExpressiveCard
+import com.example.ui.components.ExpressiveLoadingIndicator
+import com.example.ui.components.ExpressiveSecurityBadge
+import com.example.ui.components.ExpressiveSplitButton
+import com.example.ui.components.expressivePressScale
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -68,210 +74,302 @@ fun ChatListScreen(
     onOpenChat: (String) -> Unit,
     onOpenSettings: () -> Unit
 ) {
-    val contacts by viewModel.contacts.collectAsStateWithLifecycle()
-    val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
-    val discoveredUsers by viewModel.discoveredUsers.collectAsStateWithLifecycle()
-    val isDiscovering by viewModel.isDiscovering.collectAsStateWithLifecycle()
-    val discoveryError by viewModel.discoveryError.collectAsStateWithLifecycle()
+    val contacts by viewModel.contacts.collectAsState()
+    val userProfile by viewModel.userProfile.collectAsState()
+    val discoveredUsers by viewModel.discoveredUsers.collectAsState()
+    val isDiscovering by viewModel.isDiscovering.collectAsState()
+    val discoveryError by viewModel.discoveryError.collectAsState()
 
-    var showNewChatDialog by remember { mutableStateOf(false) }
+    var selectedTabIndex by remember { mutableIntStateOf(0) } // 0 = Chats, 1 = Directory
+    var searchQuery by remember { mutableStateOf("") }
+
+    LaunchedEffect(selectedTabIndex) {
+        if (selectedTabIndex == 1 && discoveredUsers.isEmpty()) {
+            viewModel.loadDiscoveredFriends()
+        }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        ExpressiveAvatar(
+                            name = userProfile?.displayName ?: "Me",
+                            size = 40.dp,
+                            isOnline = true
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "CipherChat",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp
-                        )
+                        Column {
+                            Text(
+                                text = userProfile?.displayName ?: "CipherChat",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            ExpressiveSecurityBadge(text = "Signal E2EE")
+                        }
                     }
                 },
                 actions = {
-                    userProfile?.let { profile ->
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.padding(end = 4.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primary)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = profile.displayName,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Medium,
-                                    maxLines = 1
-                                )
-                            }
-                        }
-                    }
-                    IconButton(
-                        onClick = onOpenSettings,
-                        modifier = Modifier.testTag("settings_button")
-                    ) {
+                    IconButton(onClick = onOpenSettings) {
                         Icon(
                             imageVector = Icons.Default.Settings,
-                            contentDescription = "Settings"
+                            contentDescription = "Settings",
+                            tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
                 )
             )
         },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
-                    viewModel.loadDiscoveredFriends()
-                    showNewChatDialog = true
+                    if (selectedTabIndex == 0) {
+                        selectedTabIndex = 1
+                    } else {
+                        viewModel.loadDiscoveredFriends()
+                    }
                 },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.testTag("new_chat_fab")
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                shape = MaterialTheme.shapes.large,
+                modifier = Modifier.expressivePressScale()
             ) {
                 Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "New Private Chat"
+                    imageVector = if (selectedTabIndex == 0) Icons.Default.Add else Icons.Default.Refresh,
+                    contentDescription = "Action"
                 )
             }
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = MaterialTheme.colorScheme.surface
     ) { innerPadding ->
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .padding(horizontal = 16.dp)
         ) {
-            if (contacts.isEmpty()) {
-                // Empty state
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Expressive Button Group Tab Switcher
+            ExpressiveButtonGroup(
+                options = listOf("Recent Conversations", "Discover Friends"),
+                selectedIndex = selectedTabIndex,
+                onSelect = { selectedTabIndex = it },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Search Bar
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("Search encrypted contacts or directory...") },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                singleLine = true,
+                shape = MaterialTheme.shapes.large,
+                modifier = Modifier.fillMaxWidth(),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                )
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Tab Content
+            if (selectedTabIndex == 0) {
+                // Chats Tab
+                val filteredContacts = contacts.filter {
+                    it.displayName.contains(searchQuery, ignoreCase = true) ||
+                            it.userId.contains(searchQuery, ignoreCase = true)
+                }
+
+                if (filteredContacts.isEmpty()) {
                     Box(
                         modifier = Modifier
-                            .size(72.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                            .fillMaxSize()
+                            .padding(32.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.ChatBubbleOutline,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(36.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "No private chats yet",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Tap the + button below to discover friends in your circle and start an end-to-end encrypted chat.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(20.dp))
-                    Button(
-                        onClick = {
-                            viewModel.loadDiscoveredFriends()
-                            showNewChatDialog = true
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Surface(
+                                shape = MaterialTheme.shapes.extraLarge,
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                modifier = Modifier.size(72.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.Chat,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(36.dp),
+                                        tint = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "No conversations yet",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Discover friends in your circle to start end-to-end encrypted chats.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            ExpressiveSplitButton(
+                                primaryText = "Discover Circle Directory",
+                                onPrimaryClick = { selectedTabIndex = 1 },
+                                onSecondaryClick = { selectedTabIndex = 1 }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.People,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimary
+                                )
+                            }
                         }
+                    }
+                } else {
+                    LazyColumn(
+                        contentPadding = PaddingValues(vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Icon(Icons.Default.PersonAdd, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Start a Secure Chat")
+                        items(filteredContacts, key = { it.userId }) { contact ->
+                            ContactChatItem(
+                                contact = contact,
+                                onClick = { onOpenChat(contact.userId) }
+                            )
+                        }
                     }
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .testTag("chat_list")
-                ) {
-                    items(contacts, key = { it.userId }) { contact ->
-                        ContactListItem(
-                            contact = contact,
-                            onClick = { onOpenChat(contact.userId) }
+                // Directory Discovery Tab
+                if (isDiscovering) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            ExpressiveLoadingIndicator(size = 56.dp)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "Scanning E2EE Directory...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                } else if (discoveryError != null) {
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer
+                        ),
+                        shape = MaterialTheme.shapes.large,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = discoveryError ?: "Error loading directory",
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(16.dp)
                         )
+                    }
+                } else {
+                    val filteredDiscovered = discoveredUsers.filter {
+                        it.displayName.contains(searchQuery, ignoreCase = true)
+                    }
+
+                    if (filteredDiscovered.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "No users found in directory.",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            contentPadding = PaddingValues(vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(filteredDiscovered, key = { it.userId }) { user ->
+                                DiscoveredUserItem(
+                                    user = user,
+                                    onStartChat = {
+                                        viewModel.startChatWithUser(user, onOpenChat)
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
     }
-
-    if (showNewChatDialog) {
-        NewChatDialog(
-            isDiscovering = isDiscovering,
-            discoveryError = discoveryError,
-            discoveredUsers = discoveredUsers,
-            onDismiss = { showNewChatDialog = false },
-            onSelectUser = { user ->
-                showNewChatDialog = false
-                viewModel.startChatWithUser(user, onOpenChat)
-            },
-            onAddById = { customId, customName ->
-                showNewChatDialog = false
-                viewModel.startChatWithUser(
-                    DiscoveredUser(customId, customName),
-                    onOpenChat
-                )
-            }
-        )
-    }
 }
 
 @Composable
-fun ContactListItem(
+fun ContactChatItem(
     contact: LocalContactEntity,
     onClick: () -> Unit
 ) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .testTag("contact_item_${contact.userId}"),
-        color = MaterialTheme.colorScheme.surface
+    val formattedTime = remember(contact.lastMessageTimestamp) {
+        if (contact.lastMessageTimestamp > 0L) {
+            val date = Date(contact.lastMessageTimestamp)
+            val now = Date()
+            val diffMs = now.time - date.time
+            if (diffMs < 24 * 3600 * 1000) {
+                SimpleDateFormat("h:mm a", Locale.getDefault()).format(date)
+            } else {
+                SimpleDateFormat("MMM d", Locale.getDefault()).format(date)
+            }
+        } else ""
+    }
+
+    ExpressiveCard(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        )
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            AvatarView(
+            ExpressiveAvatar(
                 name = contact.displayName,
                 isOnline = contact.isOnline,
-                size = 50.dp
+                size = 52.dp
             )
 
-            Spacer(modifier = Modifier.width(14.dp))
+            Spacer(modifier = Modifier.width(16.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 Row(
@@ -282,16 +380,25 @@ fun ContactListItem(
                     Text(
                         text = contact.displayName,
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
 
-                    if (contact.lastMessageTimestamp > 0) {
+                    if (formattedTime.isNotBlank()) {
                         Text(
-                            text = formatTimestamp(contact.lastMessageTimestamp),
+                            text = formattedTime,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = "Encrypted",
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
@@ -304,32 +411,31 @@ fun ContactListItem(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (contact.lastMessageText.isNotBlank()) {
-                            contact.lastMessageText
-                        } else {
-                            if (contact.isOnline) "Online" else "Tap to chat securely"
-                        },
+                        text = contact.lastMessageText.ifBlank { "Signal Protocol E2EE Active" },
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (contact.unreadCount > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = if (contact.unreadCount > 0) FontWeight.SemiBold else FontWeight.Normal,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
 
                     if (contact.unreadCount > 0) {
+                        Spacer(modifier = Modifier.width(8.dp))
                         Box(
                             modifier = Modifier
-                                .padding(start = 8.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(MaterialTheme.colorScheme.primary)
+                                .background(
+                                    MaterialTheme.colorScheme.primary,
+                                    CircleShape
+                                )
                                 .padding(horizontal = 8.dp, vertical = 2.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = contact.unreadCount.toString(),
+                                text = "${contact.unreadCount}",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimary
                             )
                         }
                     }
@@ -340,140 +446,59 @@ fun ContactListItem(
 }
 
 @Composable
-fun NewChatDialog(
-    isDiscovering: Boolean,
-    discoveryError: String?,
-    discoveredUsers: List<DiscoveredUser>,
-    onDismiss: () -> Unit,
-    onSelectUser: (DiscoveredUser) -> Unit,
-    onAddById: (String, String) -> Unit
+fun DiscoveredUserItem(
+    user: DiscoveredUser,
+    onStartChat: () -> Unit
 ) {
-    var manualUserId by remember { mutableStateOf("") }
-    var manualName by remember { mutableStateOf("") }
-    var showManualInput by remember { mutableStateOf(false) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = if (showManualInput) "Add Friend by User ID" else "Start a New Chat",
-                fontWeight = FontWeight.Bold
+    ExpressiveCard(
+        onClick = onStartChat,
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ExpressiveAvatar(
+                name = user.displayName,
+                isOnline = user.isOnline,
+                size = 48.dp
             )
-        },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                if (showManualInput) {
-                    OutlinedTextField(
-                        value = manualUserId,
-                        onValueChange = { manualUserId = it },
-                        label = { Text("Friend's User ID (e.g. user_abc123)") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = manualName,
-                        onValueChange = { manualName = it },
-                        label = { Text("Friend's Display Name") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                } else {
-                    if (isDiscovering) {
-                        LoadingStateView(
-                            message = "Searching private circle...",
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    } else if (discoveryError != null) {
-                        ErrorStateCard(errorMessage = discoveryError)
-                    } else if (discoveredUsers.isEmpty()) {
-                        Text(
-                            text = "No other circle members discovered yet on Firestore. You can enter a friend's User ID manually.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    } else {
-                        Text(
-                            text = "Circle members ready for E2EE chat:",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                        LazyColumn(modifier = Modifier.height(220.dp)) {
-                            items(discoveredUsers, key = { it.userId }) { user ->
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp)
-                                        .clickable { onSelectUser(user) },
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-                                    )
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        AvatarView(name = user.displayName, isOnline = user.isOnline, size = 38.dp)
-                                        Spacer(modifier = Modifier.width(10.dp))
-                                        Column {
-                                            Text(
-                                                text = user.displayName,
-                                                fontWeight = FontWeight.SemiBold,
-                                                style = MaterialTheme.typography.bodyLarge
-                                            )
-                                            Text(
-                                                text = "ID: ${user.userId}",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = user.displayName,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = if (user.isOnline) "Online in circle" else "Offline",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (user.isOnline) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                )
             }
-        },
-        confirmButton = {
-            if (showManualInput) {
-                Button(
-                    onClick = {
-                        if (manualUserId.isNotBlank()) {
-                            val name = if (manualName.isNotBlank()) manualName else "Friend"
-                            onAddById(manualUserId.trim(), name.trim())
-                        }
-                    },
-                    enabled = manualUserId.isNotBlank()
-                ) {
-                    Text("Start Chat")
-                }
-            } else {
-                TextButton(
-                    onClick = { showManualInput = true }
-                ) {
-                    Text("Enter User ID manually")
-                }
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
+
+            IconButton(
+                onClick = onStartChat,
+                modifier = Modifier
+                    .background(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = MaterialTheme.shapes.medium
+                    )
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Chat,
+                    contentDescription = "Start Chat",
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                )
             }
         }
-    )
-}
-
-private fun formatTimestamp(timestamp: Long): String {
-    val date = Date(timestamp)
-    val now = Date()
-    val sameDay = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(date) ==
-            SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(now)
-
-    return if (sameDay) {
-        SimpleDateFormat("h:mm a", Locale.getDefault()).format(date)
-    } else {
-        SimpleDateFormat("MMM d", Locale.getDefault()).format(date)
     }
 }

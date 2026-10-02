@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/>
+<title>CipherChat Settings</title>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;family=JetBrains+Mono:wght@500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS CDN -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+          },
+          colors: {
+            appBg: '#F3F4F7',
+            mintLight: '#D2F7E1',
+            mintBorder: '#A9ECC5',
+            obsidian: '#111315',
+            obsidianSubtle: '#1C1F23',
+            lilacSoft: '#EDE8FF',
+            coralWarm: '#FFF0EB',
+            coralAccent: '#FF5E3A',
+            lemonSoft: '#FEF9C3',
+            emeraldPill: '#12B76A',
+          },
+          borderRadius: {
+            'bento': '28px',
+            'bento-lg': '32px',
+          },
+          boxShadow: {
+            'soft-card': '0 8px 30px -4px rgba(18, 25, 38, 0.04), 0 2px 6px -1px rgba(0, 0, 0, 0.02)',
+            'float-btn': '0 12px 28px -6px rgba(18, 183, 106, 0.35)',
+            'pill-inset': 'inset 0 1px 2px rgba(0, 0, 0, 0.04)',
+          }
+        }
+      }
+    }
+  </script>
+<!-- BEGIN: Comprehensive iOS Spring & Dynamic Feedback System -->
+<style data-purpose="ios-spring-physics">
+    /* iOS CASpringAnimation & SwiftUI fluid spring curves */
+    :root {
+      --spring-bezier: cubic-bezier(0.34, 1.56, 0.64, 1);
+      --spring-damped: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      --spring-press: cubic-bezier(0.2, 0.8, 0.2, 1);
+      --spring-toggle: cubic-bezier(0.34, 1.4, 0.44, 1);
+    }
+
+    /* Staggered entrance animations */
+    @keyframes headerSpringSlide {
+      0% {
+        opacity: 0;
+        transform: translateY(-24px);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes springBounceUp {
+      0% {
+        opacity: 0;
+        transform: translateY(42px) scale(0.94);
+      }
+      65% {
+        opacity: 1;
+        transform: translateY(-5px) scale(1.012);
+      }
+      82% {
+        transform: translateY(2px) scale(0.998);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    @keyframes cardElasticPop {
+      0% {
+        opacity: 0;
+        transform: scale(0.88) translateY(24px);
+      }
+      70% {
+        opacity: 1;
+        transform: scale(1.025) translateY(-2px);
+      }
+      100% {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+      }
+    }
+
+    @keyframes updateCardExpand {
+      0% {
+        opacity: 0;
+        transform: translateY(48px) scale(0.92);
+      }
+      60% {
+        opacity: 1;
+        transform: translateY(-6px) scale(1.015);
+      }
+      80% {
+        transform: translateY(3px) scale(0.997);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    /* Animation utility classes */
+    .header-spring {
+      animation: headerSpringSlide 0.65s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    .spring-anim {
+      animation: springBounceUp 0.8s var(--spring-bezier) forwards;
+      opacity: 0;
+      will-change: transform, opacity;
+    }
+
+    .elastic-pop {
+      animation: cardElasticPop 0.75s var(--spring-damped) forwards;
+      opacity: 0;
+      will-change: transform, opacity;
+    }
+
+    .expand-spring {
+      animation: updateCardExpand 0.85s var(--spring-bezier) forwards;
+      opacity: 0;
+      will-change: transform, opacity;
+    }
+
+    /* Staggered entrance delays */
+    .stagger-0 { animation-delay: 0.02s; }
+    .stagger-1 { animation-delay: 0.08s; }
+    .stagger-2 { animation-delay: 0.16s; }
+    .stagger-2b { animation-delay: 0.22s; }
+    .stagger-3 { animation-delay: 0.28s; }
+    .stagger-4 { animation-delay: 0.36s; }
+    .stagger-5 { animation-delay: 0.44s; }
+
+    /* Tactile iOS Press Compression */
+    .spring-touch {
+      transition: transform 0.26s var(--spring-press), box-shadow 0.26s ease, background-color 0.2s ease, opacity 0.2s ease;
+      will-change: transform;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    .spring-touch:active {
+      transform: scale(0.95) !important;
+    }
+
+    /* Micro-bounce for circular icons and buttons */
+    .spring-touch-circle {
+      transition: transform 0.35s var(--spring-bezier), background-color 0.2s ease, box-shadow 0.25s ease;
+      will-change: transform;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .spring-touch-circle:active {
+      transform: scale(0.88) !important;
+    }
+
+    /* Damped Card Tilt/Compress on Active Press */
+    .spring-card-interactive {
+      transition: transform 0.32s var(--spring-bezier), box-shadow 0.3s ease;
+      will-change: transform;
+    }
+    .spring-card-interactive:active {
+      transform: scale(0.985);
+    }
+
+    /* iOS Native Elastic Toggle Physics */
+    .ios-toggle {
+      position: relative;
+      width: 51px;
+      height: 31px;
+      background-color: #E2E8F0;
+      border-radius: 9999px;
+      cursor: pointer;
+      transition: background-color 0.32s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.24s ease;
+      box-shadow: inset 0 1px 2px rgba(0,0,0,0.12);
+      -webkit-tap-highlight-color: transparent;
+    }
+    .ios-toggle.active {
+      background-color: #12B76A;
+    }
+    .ios-toggle-thumb {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 27px;
+      height: 27px;
+      background-color: #FFFFFF;
+      border-radius: 9999px;
+      box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15), 0 1px 1px rgba(0, 0, 0, 0.06);
+      transition: transform 0.36s var(--spring-toggle), width 0.22s ease;
+      will-change: transform, width;
+    }
+    .ios-toggle.active .ios-toggle-thumb {
+      transform: translateX(20px);
+    }
+    /* Squish/stretch effect when pressed */
+    .ios-toggle:active .ios-toggle-thumb {
+      width: 32px;
+    }
+    .ios-toggle.active:active .ios-toggle-thumb {
+      transform: translateX(15px);
+    }
+
+    /* Dark Mode Variant for the Update OS card toggle */
+    .ios-toggle-dark {
+      background-color: #334155;
+    }
+    .ios-toggle-dark.active {
+      background-color: #12B76A;
+    }
+
+    /* Glowing radar pulse ring on active indicator */
+    @keyframes radarPulse {
+      0% {
+        transform: scale(0.95);
+        opacity: 0.85;
+      }
+      50% {
+        transform: scale(1.6);
+        opacity: 0;
+      }
+      100% {
+        transform: scale(0.95);
+        opacity: 0;
+      }
+    }
+    .sonar-ring {
+      animation: radarPulse 2.2s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+    }
+
+    /* Micro-toast copied badge bounce */
+    @keyframes toastBounce {
+      0% {
+        opacity: 0;
+        transform: scale(0.7) translateY(4px);
+      }
+      60% {
+        opacity: 1;
+        transform: scale(1.08) translateY(-1px);
+      }
+      100% {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+      }
+    }
+    .toast-pop {
+      animation: toastBounce 0.35s var(--spring-bezier) forwards;
+    }
+
+    /* Respect accessibility reduced motion preferences */
+    @media (prefers-reduced-motion: reduce) {
+      .spring-anim,
+      .elastic-pop,
+      .expand-spring,
+      .header-spring,
+      .sonar-ring {
+        animation: none !important;
+        opacity: 1 !important;
+        transform: none !important;
+      }
+      .spring-touch,
+      .spring-touch-circle,
+      .spring-card-interactive,
+      .ios-toggle-thumb {
+        transition: none !important;
+      }
+    }
+  </style>
+<!-- END: Comprehensive iOS Spring System -->
+</head>
+<body class="bg-[#E9ECF0] min-h-screen text-slate-800 antialiased flex justify-center py-0 sm:py-6 selection:bg-emeraldPill selection:text-white">
+<!-- BEGIN: Mobile Device Frame -->
+<main class="w-full max-w-[430px] bg-appBg min-h-screen sm:min-h-[920px] sm:max-h-[960px] sm:rounded-[48px] overflow-y-auto overflow-x-hidden shadow-2xl relative pb-10 border-0 sm:border-[8px] sm:border-slate-800/10 flex flex-col scrollbar-none" data-purpose="mobile-viewport">
+<!-- BEGIN: iOS Status Bar Spacer (Dynamic Island Simulation) -->
+<div class="sticky top-0 z-40 bg-appBg/90 backdrop-blur-md px-7 pt-3 pb-2 flex justify-between items-center select-none" data-purpose="status-bar">
+<span class="text-xs font-bold text-slate-900 tracking-tight">9:41</span>
+<!-- Dynamic Island pill -->
+<div class="h-4 w-24 bg-black rounded-full shadow-inner transition-transform duration-300 active:scale-95"></div>
+<div class="flex items-center space-x-1.5 text-slate-900 text-xs">
+<svg class="w-3.5 h-3.5 inline fill-current" viewbox="0 0 24 24"><path d="M12 3c-4.97 0-9 4.03-9 9 0 2.12.74 4.07 1.97 5.61L4.35 19.4c-.39.39-.39 1.02 0 1.41.39.39 1.02.39 1.41 0l1.9-1.9C9.37 19.9 10.64 20.3 12 20.3c4.97 0 9-4.03 9-9s-4.03-8.3-9-8.3zm0 15.5c-3.86 0-7-3.14-7-7s3.14-7 7-7 7 3.14 7 7-3.14 7-7 7z"></path></svg>
+<span class="font-bold text-[10px]">5G</span>
+<div class="w-5 h-2.5 border border-slate-700 rounded-sm p-0.5 flex items-center">
+<div class="h-full w-3/4 bg-slate-900 rounded-2xs"></div>
+</div>
+</div>
+</div>
+<!-- END: iOS Status Bar Spacer -->
+<!-- BEGIN: Header Navigation Bar -->
+<header class="header-spring px-5 pt-2 pb-4 flex items-center justify-between sticky top-[38px] z-30 bg-appBg/80 backdrop-blur-md" data-purpose="app-header">
+<!-- Back button matching circular styling with tactile spring -->
+<button aria-label="Go back" class="spring-touch-circle w-11 h-11 rounded-full bg-white flex items-center justify-center shadow-soft-card border border-slate-200/60 active:scale-90 text-slate-800 focus:outline-none" id="btn-back" type="button">
+<svg class="w-5 h-5 text-slate-800 stroke-[2.5]" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M15.75 19.5L8.25 12l7.5-7.5" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+</button>
+<!-- Center Title -->
+<h1 class="text-xl font-extrabold tracking-tight text-slate-900 select-none">Settings</h1>
+<!-- Right Action Pill Button -->
+<button class="spring-touch h-10 px-3.5 rounded-full bg-white border border-slate-200/80 shadow-soft-card flex items-center space-x-1.5 text-xs font-bold text-slate-700 active:scale-95 focus:outline-none" data-purpose="help-action" id="btn-support" type="button">
+<span class="w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-emerald-200"></span>
+<span class="tracking-tight">Support</span>
+</button>
+</header>
+<!-- END: Header Navigation Bar -->
+<!-- Scrollable Bento Container -->
+<div class="px-4 space-y-4 pt-1 pb-16 flex-1">
+<!-- BEGIN: Hero User Profile Bento Card -->
+<section class="spring-anim stagger-1 spring-card-interactive relative overflow-hidden bg-mintLight rounded-bento-lg p-5 border border-mintBorder/70 shadow-soft-card cursor-pointer group" data-purpose="user-hero-card">
+<!-- Floating Protocol Watermark -->
+<div class="absolute -right-4 -bottom-6 text-mintBorder/40 select-none pointer-events-none font-extrabold text-7xl uppercase tracking-tighter opacity-50">
+          SECURE
+        </div>
+<div class="relative z-10">
+<!-- Top Row: Avatar & Security Pill -->
+<div class="flex items-center justify-between">
+<div class="relative">
+<!-- Avatar circle matching SG initials and mint highlight from screenshot -->
+<div class="w-16 h-16 rounded-full bg-[#B2F0CF] border-2 border-white shadow-sm flex items-center justify-center text-emerald-900 font-extrabold text-xl tracking-tight transition-transform duration-300 group-hover:scale-105">
+                SG
+              </div>
+<!-- Online active indicator dot with authentic iOS ripple/pulse -->
+<span class="absolute bottom-0 right-0 block w-4 h-4 rounded-full bg-emerald-500 border-2 border-white">
+<span class="sonar-ring absolute -inset-0.5 rounded-full bg-emerald-400"></span>
+</span>
+</div>
+<!-- Shield Badge: 256-bit encryption indicator -->
+<div class="spring-touch inline-flex items-center gap-1.5 bg-white/90 backdrop-blur-sm px-3.5 py-1.5 rounded-full border border-emerald-200 shadow-sm text-emerald-800 text-xs font-bold active:scale-95">
+<svg class="w-3.5 h-3.5 fill-emerald-600" viewbox="0 0 24 24">
+<path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-1 6h2v2h-2V7zm0 4h2v6h-2v-6z"></path>
+</svg>
+<span>256-bit AES</span>
+</div>
+</div>
+<!-- User Names & Status -->
+<div class="mt-4">
+<div class="flex items-center space-x-2">
+<h2 class="text-2xl font-extrabold text-slate-900 tracking-tight">Slava Kornilov</h2>
+<span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm"></span>
+</div>
+<div class="flex items-center space-x-2 mt-0.5">
+<p class="text-slate-600 text-sm font-semibold tracking-tight">@slava</p>
+<span class="text-slate-300">•</span>
+<span class="inline-flex items-center text-[11px] font-bold text-emerald-800 bg-white/70 px-2 py-0.5 rounded-full shadow-2xs">
+                ONLINE
+              </span>
+</div>
+</div>
+<!-- Cryptographic ID Tag with Interactive Copy Tap -->
+<div class="mt-4 pt-3.5 border-t border-emerald-900/10 flex items-center justify-between">
+<div class="space-y-0.5">
+<span class="text-[10px] font-bold uppercase tracking-wider text-emerald-900/60 block">Cryptographic Fingerprint</span>
+<button class="spring-touch flex items-center space-x-1 font-mono text-xs font-semibold text-slate-800 bg-white/75 hover:bg-white px-2.5 py-1 rounded-lg border border-emerald-200/50 active:scale-95 focus:outline-none transition-all" id="btn-copy-hash" title="Tap to copy fingerprint" type="button">
+<span id="fingerprint-label">0x972A•••4F8B</span>
+<svg class="w-3.5 h-3.5 text-slate-400 ml-1 transition-transform" fill="none" id="fingerprint-icon" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</button>
+</div>
+<!-- Action: Key QR / Profile Edit with spring click -->
+<button aria-label="Share Identity QR Code" class="spring-touch-circle w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center text-slate-800 hover:text-black border border-emerald-100 focus:outline-none" id="btn-qr-share" title="Share Identity" type="button">
+<svg class="w-5 h-5 text-slate-700 transition-transform duration-300" fill="none" id="qr-icon" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</button>
+</div>
+</div>
+</section>
+<!-- END: Hero User Profile Bento Card -->
+<!-- BEGIN: Modular 2-Column Bento Tiles with elastic pop -->
+<section class="grid grid-cols-2 gap-3" data-purpose="identity-protocol-bento-grid">
+<!-- Tile 1: Escrow & Balance (Canary Yellow) -->
+<div class="elastic-pop stagger-2 spring-touch bg-lemonSoft rounded-bento p-4 flex flex-col justify-between border border-yellow-200/80 shadow-soft-card cursor-pointer">
+<div class="flex items-center justify-between">
+<span class="text-[11px] font-extrabold uppercase tracking-wider text-amber-900/70">Escrow Sync</span>
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+</span>
+</div>
+<div class="my-3">
+<div class="text-3xl font-extrabold text-slate-900 tracking-tight">972 <span class="text-xs font-bold text-amber-800">ETH</span></div>
+<p class="text-[11px] font-medium text-slate-600 mt-0.5">Sprint #3 Vault Locked</p>
+</div>
+<div class="flex items-center text-[11px] font-bold text-amber-900 bg-white/70 rounded-full px-2.5 py-1 w-fit shadow-2xs">
+<span>Verified Vault</span>
+</div>
+</div>
+<!-- Tile 2: Connected Node & Storage (Lilac Soft) -->
+<div class="elastic-pop stagger-2b spring-touch bg-lilacSoft rounded-bento p-4 flex flex-col justify-between border border-purple-200/80 shadow-soft-card cursor-pointer">
+<div class="flex items-center justify-between">
+<span class="text-[11px] font-extrabold uppercase tracking-wider text-purple-900/70">Relay Node</span>
+<div class="w-6 h-6 rounded-full bg-white/90 flex items-center justify-center shadow-xs">
+<svg class="w-3.5 h-3.5 text-purple-700" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M13 10V3L4 14h7v7l9-11h-7z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"></path>
+</svg>
+</div>
+</div>
+<div class="my-3">
+<div class="text-2xl font-extrabold text-slate-900 tracking-tight">0.04 <span class="text-xs font-bold text-purple-700">ms</span></div>
+<p class="text-[11px] font-medium text-purple-900/70 mt-0.5">Tokyo #24 • P2P Active</p>
+</div>
+<div class="flex items-center justify-between text-[11px] font-bold text-purple-950 bg-white/70 rounded-full px-2.5 py-1 shadow-2xs">
+<span>Storage: 972 MB</span>
+</div>
+</div>
+</section>
+<!-- END: Modular 2-Column Bento Tiles -->
+<!-- BEGIN: Software Update Bento Section with Expansion Spring Curve -->
+<section class="expand-spring stagger-3 bg-obsidian rounded-bento-lg p-5 text-white shadow-soft-card relative overflow-hidden" data-purpose="software-update-module">
+<!-- Ambient subtle glow in the dark card -->
+<div class="absolute -top-16 -right-16 w-36 h-36 bg-emerald-500/20 rounded-full blur-2xl pointer-events-none"></div>
+<!-- Card Header: Current Version & New Update Tag -->
+<div class="flex items-start justify-between relative z-10">
+<div>
+<div class="inline-flex items-center space-x-1.5 bg-white/10 px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider text-slate-300 uppercase mb-2">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+<span>CipherChat OS</span>
+</div>
+<h3 class="text-xl font-extrabold text-white tracking-tight flex items-center gap-2">
+              Update v2.5.0
+              <span class="inline-block bg-emeraldPill/20 text-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">
+                Ready
+              </span>
+</h3>
+<p class="text-xs text-slate-400 mt-0.5">Build #8490 • Released 10:14 AM</p>
+</div>
+<!-- Version Pill badge -->
+<div class="spring-touch bg-obsidianSubtle border border-slate-700 rounded-2xl px-3 py-2 text-right">
+<span class="text-[10px] uppercase font-bold text-slate-400 block">Current</span>
+<span class="text-xs font-mono font-bold text-slate-200">v2.4.1</span>
+</div>
+</div>
+<!-- What's New Feature List in Bento pill style -->
+<div class="mt-4 bg-obsidianSubtle/90 rounded-2xl p-3.5 border border-slate-800 space-y-2 relative z-10" data-purpose="changelog-pills">
+<p class="text-xs font-bold text-slate-300 uppercase tracking-wider text-[10px]">What's New in This Build</p>
+<div class="flex items-center space-x-2 text-xs text-slate-200">
+<span class="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-[10px] font-bold">✓</span>
+<span class="font-medium">Bento 2.0 Motion Spring Engine</span>
+</div>
+<div class="flex items-center space-x-2 text-xs text-slate-200">
+<span class="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-[10px] font-bold">✓</span>
+<span class="font-medium">Zero-Knowledge Escrow Boost</span>
+</div>
+<div class="flex items-center space-x-2 text-xs text-slate-200">
+<span class="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-[10px] font-bold">✓</span>
+<span class="font-medium">Quantum-proof cipher key handshake</span>
+</div>
+</div>
+<!-- Action Area: Primary Download Pill & Secondary Check Button -->
+<div class="mt-4 pt-1 space-y-2.5 relative z-10">
+<!-- Download & Install Button with Tactile Elastic Feedback & Progress State -->
+<div class="relative overflow-hidden rounded-full">
+<button class="spring-touch w-full py-3.5 px-4 bg-emeraldPill hover:bg-emerald-500 active:scale-95 text-white font-extrabold text-sm rounded-full shadow-float-btn flex items-center justify-center space-x-2.5 transition-all relative z-10 focus:outline-none" id="download-install-btn" type="button">
+<svg class="w-4 h-4 stroke-[3] transition-transform" fill="none" id="download-icon" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>
+<span id="btn-text">Download and Install (48 MB)</span>
+</button>
+<!-- Interactive download progress bar overlay -->
+<div class="absolute inset-y-0 left-0 bg-emerald-400/30 transition-all duration-300 pointer-events-none rounded-full" id="download-progress-bar" style="width: 0%;"></div>
+</div>
+<!-- Check for Update Secondary Option with Spring Rotation -->
+<button class="spring-touch w-full py-2.5 px-4 bg-white/10 hover:bg-white/15 active:scale-95 text-slate-300 font-bold text-xs rounded-full flex items-center justify-center space-x-2 border border-white/5 transition-all focus:outline-none" id="check-update-btn" type="button">
+<svg class="w-3.5 h-3.5 text-slate-300 transition-transform duration-700 ease-out" fill="none" id="sync-spinner" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2"></path>
+</svg>
+<span id="sync-text">Check for Update</span>
+</button>
+</div>
+<!-- Automatic Updates Toggle Row with iOS Spring Switch -->
+<div class="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between relative z-10" data-purpose="auto-update-toggle">
+<div>
+<span class="text-xs font-bold text-slate-200 block">Automatic Updates</span>
+<span class="text-[11px] text-slate-400">Download over Wi-Fi &amp; install at night</span>
+</div>
+<!-- iOS Toggle Component -->
+<div aria-checked="true" aria-label="Toggle Automatic Updates" class="ios-toggle ios-toggle-dark active" id="toggle-auto-updates" role="switch" tabindex="0">
+<div class="ios-toggle-thumb"></div>
+</div>
+</div>
+</section>
+<!-- END: Software Update Bento Section -->
+<!-- BEGIN: Security & Privacy Preferences Bento -->
+<section class="spring-anim stagger-4 bg-white rounded-bento-lg p-5 border border-slate-200/80 shadow-soft-card space-y-4" data-purpose="preferences-group">
+<h3 class="text-xs font-extrabold uppercase tracking-wider text-slate-400">Privacy &amp; Protocols</h3>
+<!-- Option 1: Zero-Knowledge Escrow Verification -->
+<div class="flex items-center justify-between py-1">
+<div class="flex items-center space-x-3">
+<div class="w-10 h-10 rounded-2xl bg-coralWarm text-coralAccent flex items-center justify-center font-bold transition-transform duration-300 hover:scale-105">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</div>
+<div>
+<p class="text-sm font-bold text-slate-800">Escrow Auto-Accept</p>
+<p class="text-[11px] font-medium text-slate-500">Only for contacts with 256-bit pass</p>
+</div>
+</div>
+<!-- iOS Spring Toggle -->
+<div aria-checked="true" aria-label="Toggle Escrow Auto-Accept" class="ios-toggle active" id="toggle-escrow" role="switch" tabindex="0">
+<div class="ios-toggle-thumb"></div>
+</div>
+</div>
+<div class="h-px bg-slate-100"></div>
+<!-- Option 2: Self-Destruct Timers (Voice & P2P) -->
+<div class="flex items-center justify-between py-1">
+<div class="flex items-center space-x-3">
+<div class="w-10 h-10 rounded-2xl bg-mintLight text-emerald-800 flex items-center justify-center font-bold transition-transform duration-300 hover:scale-105">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24">
+<path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</div>
+<div>
+<p class="text-sm font-bold text-slate-800">Burn Voice Memos</p>
+<p class="text-[11px] font-medium text-slate-500">Expunged 2 hours after review</p>
+</div>
+</div>
+<button class="flex items-center space-x-1.5 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-full cursor-pointer text-xs font-bold text-slate-700 spring-touch focus:outline-none" id="btn-timer-select" type="button">
+<span id="burn-timer-val">2 hours</span>
+<svg class="w-3.5 h-3.5 text-slate-500 transition-transform duration-200" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M9 5l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+</div>
+</section>
+<!-- END: Security & Privacy Preferences Bento -->
+<!-- BEGIN: Subtle Sign-Out / Reset Pill with tactile spring -->
+<div class="spring-anim stagger-5 pt-2 flex justify-center" data-purpose="footer-action">
+<button class="spring-touch text-xs font-extrabold text-slate-400 hover:text-rose-500 transition-colors py-2 px-4 rounded-full active:scale-95 focus:outline-none" id="btn-signout" type="button">
+          Sign out of Device Node
+        </button>
+</div>
+<!-- END: Subtle Sign-Out / Reset Pill -->
+</div>
+<!-- END: Scrollable Bento Container -->
+<!-- BEGIN: iOS Bottom Bar Handle Indicator -->
+<div class="fixed sm:absolute bottom-1 left-0 right-0 flex justify-center py-2 pointer-events-none z-50" data-purpose="home-indicator">
+<div class="w-32 h-1 bg-slate-900/25 rounded-full"></div>
+</div>
+<!-- END: iOS Bottom Bar Handle Indicator -->
+</main>
+<!-- END: Mobile Device Frame -->
+<!-- BEGIN: Interactive Spring Micro-scripts -->
+<script data-purpose="spring-interactions">
+    document.addEventListener('DOMContentLoaded', () => {
+      // 1. iOS Authentic Spring Switch handler for toggles
+      const initToggle = (toggleId) => {
+        const toggle = document.getElementById(toggleId);
+        if (!toggle) return;
+
+        const toggleState = () => {
+          const isActive = toggle.classList.toggle('active');
+          toggle.setAttribute('aria-checked', isActive.toString());
+        };
+
+        toggle.addEventListener('click', toggleState);
+        toggle.addEventListener('keydown', (e) => {
+          if (e.key === ' ' || e.key === 'Enter') {
+            e.preventDefault();
+            toggleState();
+          }
+        });
+      };
+
+      initToggle('toggle-auto-updates');
+      initToggle('toggle-escrow');
+
+      // 2. Interactive "Check for Update" spring rotation
+      const checkBtn = document.getElementById('check-update-btn');
+      const syncSpinner = document.getElementById('sync-spinner');
+      const syncText = document.getElementById('sync-text');
+
+      if (checkBtn && syncSpinner && syncText) {
+        let isChecking = false;
+        checkBtn.addEventListener('click', () => {
+          if (isChecking) return;
+          isChecking = true;
+
+          // Spring spin animation
+          syncSpinner.style.transform = 'rotate(720deg)';
+          syncSpinner.style.transition = 'transform 1.3s cubic-bezier(0.34, 1.56, 0.64, 1)';
+          syncText.textContent = 'Verifying Merkle Tree...';
+          checkBtn.disabled = true;
+
+          setTimeout(() => {
+            syncSpinner.style.transition = 'none';
+            syncSpinner.style.transform = 'rotate(0deg)';
+            syncText.textContent = 'Latest v2.5.0 Verified!';
+            checkBtn.disabled = false;
+            
+            setTimeout(() => {
+              syncText.textContent = 'Check for Update';
+              isChecking = false;
+            }, 2400);
+          }, 1300);
+        });
+      }
+
+      // 3. Download & Install interactive elastic progress simulation
+      const downloadBtn = document.getElementById('download-install-btn');
+      const btnText = document.getElementById('btn-text');
+      const progressBar = document.getElementById('download-progress-bar');
+      const downloadIcon = document.getElementById('download-icon');
+
+      if (downloadBtn && btnText && progressBar) {
+        let isDownloading = false;
+
+        downloadBtn.addEventListener('click', () => {
+          if (isDownloading) return;
+          isDownloading = true;
+
+          let progress = 0;
+          btnText.textContent = 'Downloading (0%)...';
+          downloadBtn.classList.remove('bg-emeraldPill');
+          downloadBtn.classList.add('bg-slate-800');
+          progressBar.style.width = '0%';
+          if (downloadIcon) downloadIcon.classList.add('animate-bounce');
+
+          const interval = setInterval(() => {
+            progress += 20;
+            progressBar.style.width = `${progress}%`;
+
+            if (progress < 100) {
+              btnText.textContent = `Downloading (${progress}%)...`;
+            } else {
+              clearInterval(interval);
+              btnText.textContent = 'Verifying Hash & Restarting...';
+              downloadBtn.classList.remove('bg-slate-800');
+              downloadBtn.classList.add('bg-emerald-600');
+              if (downloadIcon) downloadIcon.classList.remove('animate-bounce');
+
+              setTimeout(() => {
+                btnText.textContent = 'Installed • CipherChat v2.5.0';
+                progressBar.style.width = '0%';
+                setTimeout(() => {
+                  btnText.textContent = 'Reinstall Update (48 MB)';
+                  downloadBtn.classList.remove('bg-emerald-600');
+                  downloadBtn.classList.add('bg-emeraldPill');
+                  isDownloading = false;
+                }, 3500);
+              }, 1200);
+            }
+          }, 320);
+        });
+      }
+
+      // 4. Tactile Fingerprint Copy with Spring Pop Feedback
+      const copyBtn = document.getElementById('btn-copy-hash');
+      const hashLabel = document.getElementById('fingerprint-label');
+      const hashIcon = document.getElementById('fingerprint-icon');
+
+      if (copyBtn && hashLabel && hashIcon) {
+        copyBtn.addEventListener('click', () => {
+          const original = hashLabel.textContent;
+          hashLabel.textContent = 'Copied to Clipboard!';
+          copyBtn.classList.add('toast-pop', 'bg-emerald-100', 'border-emerald-300');
+          hashIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" />';
+
+          setTimeout(() => {
+            hashLabel.textContent = original;
+            copyBtn.classList.remove('toast-pop', 'bg-emerald-100', 'border-emerald-300');
+            hashIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />';
+          }, 1800);
+        });
+      }
+
+      // 5. QR Code button tactile bounce
+      const qrBtn = document.getElementById('btn-qr-share');
+      const qrIcon = document.getElementById('qr-icon');
+      if (qrBtn && qrIcon) {
+        qrBtn.addEventListener('click', () => {
+          qrIcon.style.transform = 'scale(1.3) rotate(90deg)';
+          setTimeout(() => {
+            qrIcon.style.transform = 'scale(1) rotate(0deg)';
+          }, 300);
+        });
+      }
+
+      // 6. Burn timer toggle cycle on tap
+      const burnBtn = document.getElementById('btn-timer-select');
+      const burnLabel = document.getElementById('burn-timer-val');
+      if (burnBtn && burnLabel) {
+        const timerOptions = ['1 hour', '2 hours', '24 hours', 'Off'];
+        let currentIdx = 1;
+        burnBtn.addEventListener('click', () => {
+          currentIdx = (currentIdx + 1) % timerOptions.length;
+          burnLabel.textContent = timerOptions[currentIdx];
+          burnBtn.classList.add('scale-105');
+          setTimeout(() => burnBtn.classList.remove('scale-105'), 200);
+        });
+      }
+
+      // 7. Subtle interactive response on sign-out
+      const signOutBtn = document.getElementById('btn-signout');
+      if (signOutBtn) {
+        signOutBtn.addEventListener('click', () => {
+          signOutBtn.textContent = 'Node session active • Press again to confirm';
+          signOutBtn.classList.add('text-rose-600');
+          setTimeout(() => {
+            signOutBtn.textContent = 'Sign out of Device Node';
+            signOutBtn.classList.remove('text-rose-600');
+          }, 3000);
+        });
+      }
+    });
+  </script>
+<!-- END: Interactive Spring Micro-scripts -->
+</body></html>

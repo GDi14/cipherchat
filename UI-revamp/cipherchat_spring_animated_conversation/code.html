@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>CipherChat - Slava Kornilov</title>
+<!-- Google Fonts: Plus Jakarta Sans -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS v3 with Plugins -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+          },
+          colors: {
+            canvas: '#EAECEF',
+            mint: '#D2F7E1',
+            mintDark: '#0D6838',
+            obsidian: '#121417',
+            coral: '#FF5C36',
+            amberCard: '#FDF18A',
+            emeraldAccent: '#10B981',
+          },
+          boxShadow: {
+            bento: '0 8px 24px -4px rgba(0, 0, 0, 0.04), 0 2px 6px -1px rgba(0, 0, 0, 0.02)',
+            cardHover: '0 12px 28px -4px rgba(0, 0, 0, 0.08)',
+            floatButton: '0 8px 20px -3px rgba(16, 185, 129, 0.35)',
+            glowDot: '0 0 10px rgba(16, 185, 129, 0.7)',
+          }
+        }
+      }
+    }
+  </script>
+<!-- BEGIN: Custom Keyframes & Motion Styles -->
+<style data-purpose="animations">
+    /* iOS Spring Damped Physics Timing & Curve */
+    :root {
+      --ios-spring-ease: cubic-bezier(0.34, 1.56, 0.64, 1);
+      --ios-bounce-touch: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    /* Header spring entrance from top with gentle overshoot */
+    @keyframes iosHeaderEntrance {
+      0% {
+        opacity: 0;
+        transform: translateY(-24px);
+      }
+      60% {
+        opacity: 1;
+        transform: translateY(2px);
+      }
+      80% {
+        transform: translateY(-1px);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* Footer / Composer spring up */
+    @keyframes iosFooterEntrance {
+      0% {
+        opacity: 0;
+        transform: translateY(30px);
+      }
+      65% {
+        opacity: 1;
+        transform: translateY(-3px);
+      }
+      85% {
+        transform: translateY(1px);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* CASpringAnimation simulation: mass: 1, stiffness: 180, damping: 14 */
+    @keyframes iosCardSpring {
+      0% {
+        opacity: 0;
+        transform: translateY(28px) scale(0.92);
+      }
+      45% {
+        opacity: 1;
+        transform: translateY(-3.5px) scale(1.025);
+      }
+      70% {
+        transform: translateY(1.2px) scale(0.995);
+      }
+      88% {
+        transform: translateY(-0.4px) scale(1.002);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    /* Soft breathing & pulsating glow for online status dot */
+    @keyframes pulseGlow {
+      0%, 100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5), 0 0 10px rgba(16, 185, 129, 0.7);
+      }
+      50% {
+        transform: scale(1.15);
+        box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.15), 0 0 14px rgba(16, 185, 129, 0.85);
+      }
+    }
+
+    /* Harmonically animated voice waveform heights */
+    @keyframes soundWaveHarmonic {
+      0%, 100% { height: 4px; transform: scaleY(0.7); }
+      25% { height: 18px; transform: scaleY(1.1); }
+      50% { height: 8px; transform: scaleY(0.85); }
+      75% { height: 22px; transform: scaleY(1.2); }
+    }
+
+    /* iOS iMessage style jumping bounce with squish & stretch */
+    @keyframes typingSquishBounce {
+      0%, 100% {
+        transform: translateY(0) scale(1, 1);
+        opacity: 0.35;
+      }
+      30% {
+        transform: translateY(-6px) scale(0.9, 1.15);
+        opacity: 1;
+      }
+      50% {
+        transform: translateY(1px) scale(1.12, 0.88);
+        opacity: 0.85;
+      }
+      70% {
+        transform: translateY(-1.5px) scale(0.98, 1.02);
+        opacity: 0.55;
+      }
+    }
+
+    /* Fluid Stagger Delays for Chat Entrance */
+    .header-spring {
+      animation: iosHeaderEntrance 0.65s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    .footer-spring {
+      animation: iosFooterEntrance 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both;
+    }
+
+    .stagger-1 { animation: iosCardSpring 0.72s cubic-bezier(0.2, 0.85, 0.32, 1.2) 0.08s both; }
+    .stagger-2 { animation: iosCardSpring 0.72s cubic-bezier(0.2, 0.85, 0.32, 1.2) 0.18s both; }
+    .stagger-3 { animation: iosCardSpring 0.72s cubic-bezier(0.2, 0.85, 0.32, 1.2) 0.28s both; }
+    .stagger-4 { animation: iosCardSpring 0.72s cubic-bezier(0.2, 0.85, 0.32, 1.2) 0.38s both; }
+    .stagger-5 { animation: iosCardSpring 0.72s cubic-bezier(0.2, 0.85, 0.32, 1.2) 0.48s both; }
+    .stagger-divider { animation: iosCardSpring 0.6s cubic-bezier(0.2, 0.85, 0.32, 1.2) 0.04s both; }
+
+    /* Tactical iOS Spring Touch Feedback (Fast compress, fluid recoil) */
+    .ios-spring-press {
+      transition: transform 0.32s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.2s ease, opacity 0.2s ease;
+      will-change: transform;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .ios-spring-press:active {
+      transform: scale(0.91);
+      transition-duration: 0.09s;
+      filter: brightness(0.96);
+    }
+
+    .ios-spring-press-subtle {
+      transition: transform 0.36s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      will-change: transform;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .ios-spring-press-subtle:active {
+      transform: scale(0.975);
+      transition-duration: 0.1s;
+    }
+
+    .ios-button-bounce {
+      transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease;
+      will-change: transform;
+    }
+    .ios-button-bounce:hover {
+      transform: scale(1.05) translateY(-1px);
+    }
+    .ios-button-bounce:active {
+      transform: scale(0.90) translateY(1px) !important;
+      transition-duration: 0.08s;
+    }
+
+    /* Pulse Glow */
+    .pulse-dot {
+      animation: pulseGlow 2.4s infinite cubic-bezier(0.4, 0, 0.6, 1);
+    }
+
+    /* Audio wave bars */
+    .wave-bar {
+      animation: soundWaveHarmonic 1.2s infinite ease-in-out;
+      transform-origin: bottom center;
+    }
+    .wave-bar-1 { animation-duration: 1.05s; animation-delay: 0.0s; }
+    .wave-bar-2 { animation-duration: 0.85s; animation-delay: 0.18s; }
+    .wave-bar-3 { animation-duration: 1.25s; animation-delay: 0.32s; }
+    .wave-bar-4 { animation-duration: 0.95s; animation-delay: 0.12s; }
+    .wave-bar-5 { animation-duration: 1.15s; animation-delay: 0.4s; }
+    .wave-bar-6 { animation-duration: 0.88s; animation-delay: 0.22s; }
+    .wave-bar-7 { animation-duration: 1.02s; animation-delay: 0.08s; }
+
+    /* Typing indicators */
+    .typing-dot:nth-child(1) { animation: typingSquishBounce 1.35s infinite ease-in-out 0s; }
+    .typing-dot:nth-child(2) { animation: typingSquishBounce 1.35s infinite ease-in-out 0.2s; }
+    .typing-dot:nth-child(3) { animation: typingSquishBounce 1.35s infinite ease-in-out 0.4s; }
+
+    .custom-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .custom-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+
+    /* Accessibility: Respect Reduced Motion */
+    @media (prefers-reduced-motion: reduce) {
+      .header-spring,
+      .footer-spring,
+      .stagger-1,
+      .stagger-2,
+      .stagger-3,
+      .stagger-4,
+      .stagger-5,
+      .stagger-divider,
+      .wave-bar,
+      .typing-dot,
+      .pulse-dot {
+        animation: none !important;
+        transform: none !important;
+        opacity: 1 !important;
+      }
+      .ios-spring-press,
+      .ios-spring-press-subtle,
+      .ios-button-bounce {
+        transition: none !important;
+      }
+    }
+  </style>
+<!-- END: Custom Keyframes & Motion Styles -->
+</head>
+<body class="bg-[#DFE1E5] flex justify-center items-center min-h-screen p-0 sm:p-4 text-slate-900 font-sans antialiased selection:bg-mint selection:text-mintDark">
+<!-- BEGIN: Mobile Device Frame -->
+<main class="w-full max-w-[390px] h-[844px] bg-[#EBECEF] rounded-[48px] shadow-2xl relative flex flex-col overflow-hidden border-[6px] border-white/80 ring-1 ring-black/5" data-purpose="mobile-viewport">
+<!-- BEGIN: Top Navigation & Contact Header -->
+<header class="header-spring px-5 pt-12 pb-3.5 bg-white/70 backdrop-blur-xl border-b border-black/[0.04] sticky top-0 z-30 flex items-center justify-between" data-purpose="chat-header">
+<!-- Back Action and Contact Profile -->
+<div class="flex items-center gap-3">
+<!-- Back Navigation Button -->
+<button aria-label="Back to Inbox" class="ios-spring-press w-10 h-10 rounded-full bg-white shadow-sm border border-slate-200/60 flex items-center justify-center hover:bg-slate-50 cursor-pointer" type="button">
+<svg class="w-5 h-5 text-slate-700" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" viewbox="0 0 24 24">
+<path d="M15 19l-7-7 7-7"></path>
+</svg>
+</button>
+<!-- Avatar & Name Info -->
+<div class="flex items-center gap-2.5">
+<!-- Avatar with Online Dot -->
+<div class="relative ios-spring-press cursor-pointer">
+<div class="w-10 h-10 rounded-2xl bg-[#A7F3D0] text-emerald-900 font-bold text-sm flex items-center justify-center border border-white shadow-sm tracking-tight">
+              SG
+            </div>
+<!-- Online status indicator -->
+<span class="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white pulse-dot"></span>
+</div>
+<div>
+<div class="flex items-center gap-1.5">
+<h1 class="font-extrabold text-[15px] leading-tight text-slate-900 tracking-tight">Slava Kornilov</h1>
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="text-[11px] font-medium text-slate-400">@slava</span>
+<span class="text-[9px] font-semibold tracking-wider uppercase text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full border border-emerald-200/50">Online</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Security / Encryption Shield Info Pill -->
+<div class="flex items-center gap-1.5">
+<button aria-label="Security Status: 256-bit Cipher" class="ios-spring-press h-9 px-2.5 rounded-full bg-emerald-50 hover:bg-emerald-100/70 border border-emerald-200/60 flex items-center gap-1.5 text-emerald-800" title="Encrypted Connection" type="button">
+<svg class="w-3.5 h-3.5 text-emerald-600" fill="currentColor" viewbox="0 0 24 24">
+<path clip-rule="evenodd" d="M12.516 2.17a.75.75 0 00-1.032 0 11.209 11.209 0 01-7.877 3.08.75.75 0 00-.722.515A12.74 12.74 0 002.25 9.75c0 5.942 4.064 10.933 9.563 12.348a.749.749 0 00.374 0c5.499-1.415 9.563-6.406 9.563-12.348 0-1.39-.223-2.73-.635-3.985a.75.75 0 00-.722-.516l-.143.001c-2.996 0-5.717-1.17-7.734-3.08zm-1.516 8.58v4.5a.75.75 0 001.5 0v-4.5a.75.75 0 00-1.5 0zm.75-3.5a1 1 0 100 2 1 1 0 000-2z" fill-rule="evenodd"></path>
+</svg>
+<span class="text-[10px] font-bold tracking-tight text-emerald-700">256-bit</span>
+</button>
+<button aria-label="Conversation Settings" class="ios-spring-press w-9 h-9 rounded-full bg-white border border-slate-200/60 flex items-center justify-center text-slate-600 hover:bg-slate-50" type="button">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24">
+<circle cx="12" cy="12" r="1"></circle>
+<circle cx="19" cy="12" r="1"></circle>
+<circle cx="5" cy="12" r="1"></circle>
+</svg>
+</button>
+</div>
+</header>
+<!-- END: Top Navigation & Contact Header -->
+<!-- BEGIN: Chat Conversation Area -->
+<section class="flex-1 overflow-y-auto px-4 py-4 space-y-3.5 custom-scrollbar" data-purpose="chat-messages">
+<!-- Timestamp Divider Pill -->
+<div class="stagger-divider flex justify-center my-1">
+<span class="bg-white/80 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-bold text-slate-500 uppercase tracking-wider border border-slate-200/50 shadow-sm">
+          Today, 10:14 AM • Cipher Protocol Active
+        </span>
+</div>
+<!-- 1. Voice Message Card (Slava Bento Card, Mint Green #D2F7E1) -->
+<div class="stagger-1 flex items-start gap-2 max-w-[92%]" data-purpose="voice-message-card">
+<div class="w-7 h-7 rounded-xl bg-mintDark/10 text-emerald-800 font-bold text-[11px] flex-shrink-0 flex items-center justify-center mt-1">
+          SG
+        </div>
+<div class="ios-spring-press-subtle bg-mint text-slate-900 rounded-[28px] rounded-tl-sm p-4 shadow-bento border border-emerald-200/60 w-full relative">
+<!-- Bento header in audio card -->
+<div class="flex items-center justify-between mb-3">
+<div class="flex items-center gap-2">
+<span class="text-[12px] font-extrabold text-mintDark uppercase tracking-wider">Voice Memo</span>
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
+<span class="text-[11px] font-bold text-emerald-700/80">0:45</span>
+</div>
+<!-- Double Bento Dots Accent -->
+<div class="flex items-center gap-1 opacity-40">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-900"></span>
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-900"></span>
+</div>
+</div>
+<!-- Audio Waveform & Play Action -->
+<div class="flex items-center gap-3 bg-white/60 backdrop-blur-sm rounded-2xl p-2.5 border border-emerald-300/40">
+<button aria-label="Play audio memo" class="ios-button-bounce w-9 h-9 rounded-xl bg-mintDark text-white flex items-center justify-center flex-shrink-0 shadow-sm cursor-pointer" type="button">
+<svg class="w-4 h-4 ml-0.5 fill-current" viewbox="0 0 24 24">
+<path d="M8 5v14l11-7z"></path>
+</svg>
+</button>
+<!-- Dynamic Animated Sound Waves with natural staggered harmonic heights -->
+<div class="flex items-center gap-1 flex-1 h-6 px-1">
+<span class="w-1 bg-mintDark rounded-full wave-bar wave-bar-1"></span>
+<span class="w-1 bg-mintDark rounded-full wave-bar wave-bar-2"></span>
+<span class="w-1 bg-mintDark rounded-full wave-bar wave-bar-3"></span>
+<span class="w-1 bg-mintDark rounded-full wave-bar wave-bar-4"></span>
+<span class="w-1 bg-mintDark/40 rounded-full wave-bar wave-bar-5"></span>
+<span class="w-1 bg-mintDark/40 rounded-full wave-bar wave-bar-6"></span>
+<span class="w-1 bg-mintDark/40 rounded-full wave-bar-7"></span>
+<span class="w-1 bg-mintDark/30 rounded-full wave-bar wave-bar-3"></span>
+<span class="w-1 bg-mintDark/20 rounded-full h-2"></span>
+<span class="w-1 bg-mintDark/20 rounded-full h-1.5"></span>
+<span class="w-1 bg-mintDark/20 rounded-full h-2"></span>
+</div>
+<span class="text-[11px] font-bold text-mintDark mr-1">0:21</span>
+</div>
+<div class="mt-2 text-[12px] font-medium text-emerald-900/90 leading-snug">
+            “Ready for the project sprint? Let me know when you review the mockups.”
+          </div>
+</div>
+</div>
+<!-- 2. Bento Payload Card: Crypto Transfer Snippet (Incoming Alexey/Slava reference) -->
+<div class="stagger-2 flex items-start gap-2 max-w-[88%] ml-9" data-purpose="crypto-payload-card">
+<div class="ios-spring-press-subtle bg-white rounded-3xl p-3.5 shadow-bento border border-slate-200/70 w-full cursor-pointer">
+<div class="flex items-center justify-between mb-2">
+<span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Escrow Transfer</span>
+<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-600 border border-emerald-200/60">Success</span>
+</div>
+<div class="flex items-baseline justify-between bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
+<div>
+<div class="text-[22px] font-black tracking-tight text-slate-900">972 <span class="text-xs font-bold text-slate-500">ETH</span></div>
+<div class="text-[10px] text-slate-400 font-medium">Sprint milestone #3 deposit</div>
+</div>
+<div class="ios-spring-press w-8 h-8 rounded-xl bg-slate-900 text-amber-300 font-bold text-xs flex items-center justify-center">
+              Ξ
+            </div>
+</div>
+</div>
+</div>
+<!-- 3. Outgoing Message with Inset Reply Quote Pill & Delivery Verification -->
+<div class="stagger-3 flex flex-col items-end gap-1 ml-auto max-w-[90%]" data-purpose="outgoing-message">
+<div class="ios-spring-press-subtle bg-obsidian text-white rounded-[28px] rounded-tr-sm p-4 shadow-bento border border-black/10 w-full cursor-pointer">
+<!-- Inset Reply Quote Component -->
+<div class="ios-spring-press bg-white/10 backdrop-blur-md rounded-2xl p-2.5 mb-2.5 border-l-4 border-emerald-400 border border-white/5">
+<div class="flex items-center justify-between text-[11px] mb-0.5">
+<span class="font-bold text-emerald-400">Replying to Slava</span>
+<span class="text-[10px] text-white/50">10:14 AM</span>
+</div>
+<p class="text-[12px] text-slate-300 italic truncate font-medium">
+              “Ready for the project sprint? Let me know...”
+            </p>
+</div>
+<!-- Outgoing Message Body -->
+<p class="text-[13.5px] leading-relaxed font-normal text-slate-100">
+            All designs are synced in the repo. Just deployed the prototype screens for the crypto wallet interface!
+          </p>
+<!-- Delivery Status & Timestamp -->
+<div class="flex items-center justify-between mt-3 pt-2 border-t border-white/10 text-[10px]">
+<div class="flex items-center gap-1.5 text-emerald-400 font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-dot"></span>
+<span>Delivered &amp; Verified</span>
+</div>
+<div class="flex items-center gap-1 text-white/60 font-semibold">
+<span>10:16 AM</span>
+<!-- Double Checkmark Icon -->
+<svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" viewbox="0 0 24 24">
+<path d="M18 6L7 17l-5-5"></path>
+<path d="M22 10l-7.5 7.5L13 16"></path>
+</svg>
+</div>
+</div>
+</div>
+</div>
+<!-- 4. Interactive Bento Audio Pill / Short Status snippet -->
+<div class="stagger-4 flex items-start gap-2 max-w-[85%]" data-purpose="audio-pill-card">
+<div class="w-7 h-7 rounded-xl bg-purple-100 text-purple-700 font-bold text-[11px] flex-shrink-0 flex items-center justify-center mt-1">
+          SB
+        </div>
+<div class="ios-spring-press-subtle bg-[#F2EDFE] text-slate-900 rounded-[24px] rounded-tl-sm p-3.5 shadow-sm border border-purple-200/50 flex-1 cursor-pointer">
+<div class="flex items-center justify-between mb-1.5">
+<span class="text-[11px] font-bold text-purple-900">Shared audio pill</span>
+<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-200/60 text-purple-900">2:01m</span>
+</div>
+<div class="flex items-center gap-2">
+<div class="ios-button-bounce w-7 h-7 rounded-full bg-purple-700 text-white flex items-center justify-center text-xs shadow-sm">
+              ▶
+            </div>
+<span class="text-xs text-purple-900/80 font-medium">Sprint_Handoff_v2.aac</span>
+</div>
+</div>
+</div>
+<!-- 5. Typing Indicator Bento Bubble -->
+<div class="stagger-5 flex items-center gap-2 max-w-[70%]" data-purpose="typing-indicator">
+<div class="w-7 h-7 rounded-xl bg-mintDark/10 text-emerald-800 font-bold text-[10px] flex-shrink-0 flex items-center justify-center">
+          SG
+        </div>
+<div class="ios-spring-press-subtle bg-white/90 backdrop-blur-md rounded-2xl rounded-tl-none px-4 py-2.5 shadow-sm border border-slate-200/60 flex items-center gap-2">
+<span class="text-[11px] font-bold text-slate-500">Slava is typing</span>
+<div class="flex items-center gap-1.5 mt-0.5">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 typing-dot"></span>
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 typing-dot"></span>
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 typing-dot"></span>
+</div>
+</div>
+</div>
+</section>
+<!-- END: Chat Conversation Area -->
+<!-- BEGIN: Bottom Chat Bar & Input Composer -->
+<footer class="footer-spring p-3 bg-white/80 backdrop-blur-2xl border-t border-slate-200/60 z-30" data-purpose="chat-composer">
+<!-- Primary Composer Bar -->
+<form class="flex items-center gap-2" onsubmit="event.preventDefault();">
+<!-- Media Attach Action (Photo / Gallery) -->
+<button aria-label="Attach Photo or Camera" class="ios-spring-press w-10 h-10 rounded-2xl bg-slate-100 hover:bg-slate-200/70 text-slate-600 flex items-center justify-center flex-shrink-0 cursor-pointer" type="button">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24">
+<path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+</svg>
+</button>
+<!-- Document / Files Attachment Action -->
+<button aria-label="Attach Documents or Files" class="ios-spring-press w-10 h-10 rounded-2xl bg-slate-100 hover:bg-slate-200/70 text-slate-600 flex items-center justify-center flex-shrink-0 cursor-pointer" type="button">
+<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewbox="0 0 24 24">
+<path d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path>
+</svg>
+</button>
+<!-- Rounded Pill Input Field -->
+<div class="relative flex-1">
+<input class="ios-spring-press-subtle w-full h-11 bg-slate-100 hover:bg-slate-100/90 focus:bg-white text-[13.5px] font-medium text-slate-800 placeholder-slate-400 pl-4 pr-9 rounded-2xl border border-transparent focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20 transition-all outline-none" placeholder="Type a cipher message..." type="text"/>
+<!-- Voice Record Quick Mic Trigger inside input -->
+<button aria-label="Record voice note" class="ios-spring-press absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-emerald-600 cursor-pointer p-1" type="button">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" viewbox="0 0 24 24">
+<path d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
+</svg>
+</button>
+</div>
+<!-- Emerald Send Button with Spring Hover & Active Recoil Effect -->
+<button aria-label="Send cipher message" class="ios-button-bounce w-11 h-11 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center shadow-floatButton flex-shrink-0 cursor-pointer" type="submit">
+<svg class="w-5 h-5 translate-x-0.5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" viewbox="0 0 24 24">
+<path d="M5 12h14M12 5l7 7-7 7"></path>
+</svg>
+</button>
+</form>
+<!-- iOS Home Bar Indicator with subtle bounce effect on tap -->
+<div class="ios-spring-press w-32 h-1 bg-slate-400/40 rounded-full mx-auto mt-3 cursor-pointer"></div>
+</footer>
+<!-- END: Bottom Chat Bar & Input Composer -->
+</main>
+<!-- END: Mobile Device Frame -->
+<!-- Interactive tactile spring feedback script for iOS fluid feel -->
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    // Optional tactile touch micro-haptics / damped release feedback
+    const touchSpringItems = document.querySelectorAll('.ios-spring-press, .ios-button-bounce');
+    touchSpringItems.forEach(el => {
+      el.addEventListener('touchstart', () => {}, { passive: true });
+    });
+  });
+</script>
+</body></html>
