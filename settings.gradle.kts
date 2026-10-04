@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "CipherChat"
+rootProject.name = "ShieldChat"
 
 include(":app")

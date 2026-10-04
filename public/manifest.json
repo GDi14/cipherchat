@@ -1,0 +1,17 @@
+{
+  "name": "CipherChat",
+  "short_name": "CipherChat",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0F1514",
+  "theme_color": "#006A60",
+  "description": "End-to-end encrypted private messaging with libsignal and Cloudinary media.",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

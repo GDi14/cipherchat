@@ -1,26 +1,60 @@
 {
   "project_info": {
-    "project_number": "213675511260",
-    "project_id": "ciphertext-a4739",
-    "storage_bucket": "ciphertext-a4739.firebasestorage.app"
+    "project_number": "18540380887",
+    "project_id": "com-aistudio-cryptochat-e2582",
+    "storage_bucket": "com-aistudio-cryptochat-e2582.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:213675511260:android:905d5e9f3012cfd5abd319",
+        "mobilesdk_app_id": "1:18540380887:android:ea27cd8684dd9208832692",
         "android_client_info": {
-          "package_name": "com.aistudio.cipherchat.vxmknq"
+          "package_name": "com.aistudio.cryptochat.kxzvq"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "18540380887-enn8qrb61hi6sjp1jqhmp3pstrht0jf4.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aistudio.cryptochat.kxzvq",
+            "certificate_hash": "7c6c279db39453d3bce956e5deaff4fc3a153c05"
+          }
+        },
+        {
+          "client_id": "18540380887-erbkokljh2sdic9fekn0e3hodgja4bcl.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aistudio.cryptochat.kxzvq",
+            "certificate_hash": "30af67d011da8dbc4d3628375da5f171c2bcba94"
+          }
+        },
+        {
+          "client_id": "18540380887-mtv5idbamu6uk57ooiec4p0vl5e54v3s.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aistudio.cryptochat.kxzvq",
+            "certificate_hash": "db72cb817f4c789227391f403485464e592951b4"
+          }
+        },
+        {
+          "client_id": "18540380887-a3th62vs2t3l5mmuj59gcu5fef1o2d73.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
-          "current_key": "AIzaSyAjX4sugK-xoWg23L2kEq6UIU53AZpO2Eg"
+          "current_key": "AIzaSyC8FGKr6s0rfjR-mdyt2l_ITATyby9DT2A"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "18540380887-a3th62vs2t3l5mmuj59gcu5fef1o2d73.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

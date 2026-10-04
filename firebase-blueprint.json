@@ -1,0 +1,174 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with display name, chosen tag handle, and aesthetic preferences.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "tag": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoUrl": { "type": "string" },
+        "avatarShape": { "type": "string" },
+        "chatFont": { "type": "string" },
+        "fontAxes": { "type": "string" },
+        "bubbleColor": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "tag", "displayName"]
+    },
+    "TagLookup": {
+      "title": "TagLookup",
+      "description": "Tag to user id mapping for fast exact search and unique claim verification.",
+      "type": "object",
+      "properties": {
+        "tag": { "type": "string" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["tag", "userId"]
+    },
+    "PublicKeys": {
+      "title": "PublicKeys",
+      "description": "Public Signal Protocol key bundle for end-to-end encryption session setup.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "registrationId": { "type": "number" },
+        "identityKey": { "type": "string" },
+        "signedPreKeyId": { "type": "number" },
+        "signedPreKey": { "type": "string" },
+        "signedPreKeySignature": { "type": "string" },
+        "preKeys": {
+          "type": "array",
+          "items": { "type": "object" }
+        },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "registrationId", "identityKey", "signedPreKeyId", "signedPreKey", "signedPreKeySignature"]
+    },
+    "FriendRequest": {
+      "title": "FriendRequest",
+      "description": "Friendship invitation between two registered users.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "fromUserId": { "type": "string" },
+        "toUserId": { "type": "string" },
+        "fromTag": { "type": "string" },
+        "fromDisplayName": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "declined"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "fromUserId", "toUserId", "status"]
+    },
+    "Friendship": {
+      "title": "Friendship",
+      "description": "Confirmed mutual friendship allowing private direct messaging.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user1Id": { "type": "string" },
+        "user2Id": { "type": "string" },
+        "users": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "user1Id", "user2Id", "users"]
+    },
+    "Conversation": {
+      "title": "Conversation",
+      "description": "Direct message or group conversation metadata.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["direct", "group"] },
+        "name": { "type": "string" },
+        "memberIds": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "lastMessageSnippet": { "type": "string" },
+        "lastMessageTimestamp": { "type": "string", "format": "date-time" },
+        "typingUsers": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "type", "memberIds"]
+    },
+    "EncryptedMessage": {
+      "title": "EncryptedMessage",
+      "description": "End-to-end encrypted message blob and routing metadata.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "conversationId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderTag": { "type": "string" },
+        "senderDisplayName": { "type": "string" },
+        "senderChatFont": { "type": "string" },
+        "senderBubbleColor": { "type": "string" },
+        "recipientId": { "type": "string" },
+        "memberIds": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "encryptedBody": { "type": "string" },
+        "messageType": { "type": "number" },
+        "mediaUrl": { "type": "string" },
+        "mediaEncryptionKey": { "type": "string" },
+        "mediaDuration": { "type": "number" },
+        "replyToMessageId": { "type": "string" },
+        "replyToSnippet": { "type": "string" },
+        "replyToSenderName": { "type": "string" },
+        "status": { "type": "string", "enum": ["sent", "delivered", "read"] },
+        "readBy": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "deletedForUsers": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "conversationId", "senderId", "memberIds", "encryptedBody", "messageType"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles"
+    },
+    "/tags/{tag}": {
+      "schema": { "$ref": "#/entities/TagLookup" },
+      "description": "Tag to user lookups"
+    },
+    "/publicKeys/{userId}": {
+      "schema": { "$ref": "#/entities/PublicKeys" },
+      "description": "Signal Protocol public pre-key bundles"
+    },
+    "/friendRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/FriendRequest" },
+      "description": "Friend invitations"
+    },
+    "/friendships/{friendshipId}": {
+      "schema": { "$ref": "#/entities/Friendship" },
+      "description": "Confirmed friendship relationships"
+    },
+    "/conversations/{conversationId}": {
+      "schema": { "$ref": "#/entities/Conversation" },
+      "description": "Conversations list"
+    },
+    "/conversations/{conversationId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/EncryptedMessage" },
+      "description": "Encrypted message subcollection"
+    }
+  }
+}

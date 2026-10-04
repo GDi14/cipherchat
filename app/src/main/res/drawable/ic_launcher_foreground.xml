@@ -1,8 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item
-        android:width="66dp"
-        android:height="66dp"
-        android:drawable="@drawable/ic_app_logo"
-        android:gravity="center" />
-</layer-list>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer Shield Silhouette -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M54,26 C43,30 35,31 32,32 C32,54 41,74 54,82 C67,74 76,54 76,32 C73,31 65,30 54,26 Z" />
+    <!-- Inner Dark Core -->
+    <path
+        android:fillColor="#0F172A"
+        android:pathData="M54,30 C45,33.5 38,34.5 36,35.5 C36,53 43,69 54,76 C65,69 72,53 72,35.5 C70,34.5 63,33.5 54,30 Z" />
+    <!-- Lock Shackle -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M48,48 C48,44.7 50.7,42 54,42 C57.3,42 60,44.7 60,48 L60,51 L48,51 Z" />
+    <!-- Lock Body / Chat Bubble Accent -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M46,50 H62 C63.1,50 64,50.9 64,52 V64 C64,65.1 63.1,66 62,66 H46 C44.9,66 44,65.1 44,64 V52 C44,50.9 44.9,50 46,50 Z" />
+    <!-- Keyhole -->
+    <path
+        android:fillColor="#0F172A"
+        android:pathData="M54,55 C53,55 52.2,55.8 52.2,56.8 C52.2,57.5 52.6,58.1 53.2,58.4 L52.8,61.5 H55.2 L54.8,58.4 C55.4,58.1 55.8,57.5 55.8,56.8 C55.8,55.8 55,55 54,55 Z" />
+</vector>

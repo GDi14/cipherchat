@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="tealGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7BE5D6" />
+      <stop offset="100%" stop-color="#006A60" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="#0F1514" />
+  <path d="M256 64 C350 110 400 130 400 240 C400 350 320 420 256 448 C192 420 112 350 112 240 C112 130 162 110 256 64 Z" fill="url(#tealGrad)" />
+  <!-- Lock icon in center -->
+  <path d="M256 180 C234 180 216 198 216 220 L216 250 L200 250 C189 250 180 259 180 270 L180 340 C180 351 189 360 200 360 L312 360 C323 360 332 351 332 340 L332 270 C332 259 323 250 312 250 L296 250 L296 220 C296 198 278 180 256 180 Z M256 204 C265 204 272 211 272 220 L272 250 L240 250 L240 220 C240 211 247 204 256 204 Z" fill="#0F1514" />
+</svg>

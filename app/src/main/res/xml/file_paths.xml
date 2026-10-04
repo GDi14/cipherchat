@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-    <cache-path name="cache_updates" path="updates/" />
-    <cache-path name="cache_attachments" path="attachments/" />
-    <files-path name="files_attachments" path="attachments/" />
-    <external-cache-path name="ext_cache" path="." />
+    <cache-path name="camera_photos" path="photos/" />
+    <cache-path name="camera_videos" path="videos/" />
+    <cache-path name="audio_records" path="audio/" />
+    <cache-path name="media_decrypted" path="decrypted/" />
+    <cache-path name="updates" path="updates/" />
+    <external-files-path name="downloads" path="CipherDownloads/" />
 </paths>

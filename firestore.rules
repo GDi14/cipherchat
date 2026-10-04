@@ -1,0 +1,144 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['tag', 'displayName']) &&
+             data.tag is string && data.tag.size() >= 3 && data.tag.size() <= 30 &&
+             data.displayName is string && data.displayName.size() > 0 && data.displayName.size() <= 50;
+    }
+
+    function isValidTag(data) {
+      return data.keys().hasAll(['userId']) &&
+             data.userId is string && data.userId.size() > 0;
+    }
+
+    function isValidPublicKeys(data) {
+      return data.keys().hasAll(['registrationId', 'identityKey', 'signedPreKeyId', 'signedPreKey', 'signedPreKeySignature']) &&
+             data.registrationId is number &&
+             data.identityKey is string &&
+             data.signedPreKeyId is number &&
+             data.signedPreKey is string &&
+             data.signedPreKeySignature is string;
+    }
+
+    function isValidFriendRequest(data) {
+      return data.keys().hasAll(['fromUserId', 'toUserId', 'status']) &&
+             data.fromUserId is string &&
+             data.toUserId is string &&
+             data.status in ['pending', 'accepted', 'declined'];
+    }
+
+    function isValidFriendship(data) {
+      return data.keys().hasAll(['user1Id', 'user2Id', 'users']) &&
+             data.user1Id is string &&
+             data.user2Id is string &&
+             data.users is list && data.users.size() == 2;
+    }
+
+    function isValidConversation(data) {
+      return data.keys().hasAll(['type', 'memberIds']) &&
+             data.type in ['direct', 'group'] &&
+             data.memberIds is list && data.memberIds.size() >= 2;
+    }
+
+    function isValidMessage(data) {
+      return data.keys().hasAll(['conversationId', 'senderId', 'memberIds', 'encryptedBody', 'messageType']) &&
+             data.conversationId is string &&
+             data.senderId is string &&
+             data.memberIds is list &&
+             data.encryptedBody is string &&
+             data.messageType is number;
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // User profiles
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isOwner(userId) &&
+                               isValidUser(request.resource.data);
+      allow delete: if false;
+    }
+
+    // Tag reservation / lookup
+    match /tags/{tag} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() &&
+                               request.resource.data.userId == request.auth.uid &&
+                               isValidTag(request.resource.data);
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // Public Key bundles for Signal Protocol
+    match /publicKeys/{userId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isOwner(userId) &&
+                               isValidPublicKeys(request.resource.data);
+      allow delete: if false;
+    }
+
+    // Friend requests
+    match /friendRequests/{requestId} {
+      allow read: if isAuthenticated() &&
+                     (request.auth.uid == resource.data.fromUserId ||
+                      request.auth.uid == resource.data.toUserId);
+      allow create: if isAuthenticated() &&
+                       request.auth.uid == request.resource.data.fromUserId &&
+                       request.resource.data.status == 'pending' &&
+                       isValidFriendRequest(request.resource.data);
+      allow update: if isAuthenticated() &&
+                       (request.auth.uid == resource.data.toUserId ||
+                        request.auth.uid == resource.data.fromUserId) &&
+                       isValidFriendRequest(request.resource.data);
+      allow delete: if isAuthenticated() &&
+                       (request.auth.uid == resource.data.fromUserId ||
+                        request.auth.uid == resource.data.toUserId);
+    }
+
+    // Friendships
+    match /friendships/{friendshipId} {
+      allow read: if isAuthenticated() && (request.auth.uid in resource.data.users);
+      allow create: if isAuthenticated() &&
+                       (request.auth.uid in request.resource.data.users) &&
+                       isValidFriendship(request.resource.data);
+      allow update: if isAuthenticated() && (request.auth.uid in resource.data.users);
+      allow delete: if isAuthenticated() && (request.auth.uid in resource.data.users);
+    }
+
+    // Conversations
+    match /conversations/{conversationId} {
+      allow read: if isAuthenticated() && (request.auth.uid in resource.data.memberIds);
+      allow create: if isAuthenticated() &&
+                       (request.auth.uid in request.resource.data.memberIds) &&
+                       isValidConversation(request.resource.data);
+      allow update: if isAuthenticated() &&
+                       (request.auth.uid in resource.data.memberIds);
+      allow delete: if false;
+
+      // Encrypted messages subcollection with denormalized memberIds
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() && (request.auth.uid in resource.data.memberIds);
+        allow create: if isAuthenticated() &&
+                         request.auth.uid == request.resource.data.senderId &&
+                         (request.auth.uid in request.resource.data.memberIds) &&
+                         isValidMessage(request.resource.data);
+        allow update: if isAuthenticated() &&
+                         (request.auth.uid in resource.data.memberIds);
+        allow delete: if isAuthenticated() &&
+                         (request.auth.uid in resource.data.memberIds);
+      }
+    }
+  }
+}
