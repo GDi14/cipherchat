@@ -32,6 +32,10 @@ class AuthRepository(
     fun getDisplayName(): String = securePrefs.getDisplayName() ?: "User"
     fun getTag(): String = securePrefs.getTag() ?: ""
     fun getAvatarPath(): String? = securePrefs.getAvatarPath()
+    fun getFavoriteFriendIds(): Set<String> = securePrefs.getFavoriteFriendIds()
+    fun saveFavoriteFriendIds(ids: Set<String>) = securePrefs.saveFavoriteFriendIds(ids)
+    fun isVoiceOfUserEnabled(): Boolean = securePrefs.isVoiceOfUserEnabled()
+    fun setVoiceOfUserEnabled(enabled: Boolean) = securePrefs.setVoiceOfUserEnabled(enabled)
 
     /**
      * Checks if a tag is available on Supabase.

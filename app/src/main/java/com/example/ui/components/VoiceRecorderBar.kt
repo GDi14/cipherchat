@@ -1,10 +1,8 @@
 package com.example.ui.components
 
-import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Delete
@@ -13,7 +11,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -21,12 +18,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.media.AudioRecorderHelper
 import com.example.ui.theme.EditorialTypography
-import com.example.ui.theme.ExperimentalMaterial3ExpressiveApi
 import kotlinx.coroutines.delay
 import java.io.File
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun VoiceRecorderBar(
     onSendVoiceMemo: (recordedFile: File, durationMs: Long) -> Unit,
@@ -39,18 +34,6 @@ fun VoiceRecorderBar(
     var recordingFile by remember { mutableStateOf<File?>(null) }
     var recordingDurationMs by remember { mutableLongStateOf(0L) }
 
-    // Pulsing mic icon animation
-    val infiniteTransition = rememberInfiniteTransition(label = "MicPulse")
-    val micScale by infiniteTransition.animateFloat(
-        initialValue = 0.9f,
-        targetValue = 1.25f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(600, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "MicScale"
-    )
-
     LaunchedEffect(Unit) {
         recordingFile = recorderHelper.startRecording()
         val startTime = System.currentTimeMillis()
@@ -61,7 +44,7 @@ fun VoiceRecorderBar(
     }
 
     Surface(
-        shape = RoundedCornerShape(24.dp),
+        shape = MaterialTheme.shapes.extraLarge,
         color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.95f),
         contentColor = MaterialTheme.colorScheme.onErrorContainer,
         modifier = modifier
@@ -77,11 +60,10 @@ fun VoiceRecorderBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Animated Pulsing Mic Badge
+                // Static recording badge remains clear when system animations are disabled.
                 Box(
                     modifier = Modifier
                         .size(36.dp)
-                        .scale(micScale)
                         .background(MaterialTheme.colorScheme.error, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {

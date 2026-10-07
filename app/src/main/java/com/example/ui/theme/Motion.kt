@@ -1,5 +1,12 @@
 package com.example.ui.theme
 
+import android.animation.ValueAnimator
+import android.content.ContentResolver
+import android.database.ContentObserver
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -19,6 +26,46 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.platform.LocalContext
+
+val LocalExpressiveMotionEnabled = staticCompositionLocalOf { true }
+
+@Composable
+fun rememberSystemMotionEnabled(): Boolean {
+    val context = LocalContext.current
+    var enabled by remember(context) { mutableStateOf(readSystemMotionEnabled(context.contentResolver)) }
+
+    DisposableEffect(context) {
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                enabled = readSystemMotionEnabled(context.contentResolver)
+            }
+        }
+        val resolver = context.contentResolver
+        resolver.registerContentObserver(
+            Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE),
+            false,
+            observer
+        )
+        onDispose { resolver.unregisterContentObserver(observer) }
+    }
+
+    return enabled
+}
+
+private fun readSystemMotionEnabled(resolver: ContentResolver): Boolean =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        ValueAnimator.areAnimatorsEnabled()
+    } else {
+        Settings.Global.getFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f
+    }
 
 // ==============================================================================
 // Material 3 Expressive Motion Tokens

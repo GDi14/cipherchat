@@ -2,22 +2,14 @@ package com.example.ui.components
 
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.remember
 import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,19 +23,25 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -51,10 +49,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -63,11 +58,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.ui.theme.PillShape
-import com.example.ui.theme.ShieldActiveGlow
-import com.example.ui.theme.ShieldSuccessGreen
+import com.example.ui.theme.LocalExpressiveMotionEnabled
 
 /**
  * Expressive security status pill indicating E2EE state.
@@ -78,23 +71,12 @@ fun ExpressiveSecurityPill(
     isActive: Boolean = true,
     modifier: Modifier = Modifier
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "alpha"
-    )
-
     Surface(
         shape = PillShape,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
         border = androidx.compose.foundation.BorderStroke(
             width = 1.dp,
-            color = if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outlineVariant
+            color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
         ),
         modifier = modifier
     ) {
@@ -108,7 +90,7 @@ fun ExpressiveSecurityPill(
                     .size(8.dp)
                     .clip(CircleShape)
                     .background(
-                        if (isActive) ShieldSuccessGreen.copy(alpha = pulseAlpha)
+                        if (isActive) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.error
                     )
             )
@@ -141,24 +123,21 @@ fun ExpressiveAvatar(
     isActive: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val initial = name.firstOrNull()?.uppercase() ?: "?"
-    val initialsGradient = rememberAvatarBrush(name)
-
+    val usePrimaryContainer = (name.hashCode() and 1) == 0
+    val avatarContainerColor = if (usePrimaryContainer) MaterialTheme.colorScheme.primaryContainer
+    else MaterialTheme.colorScheme.tertiaryContainer
+    val avatarContentColor = if (usePrimaryContainer) MaterialTheme.colorScheme.onPrimaryContainer
+    else MaterialTheme.colorScheme.onTertiaryContainer
     Box(
         modifier = modifier.size(size),
         contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier
-                .size(size)
-                .clip(CircleShape)
-                .background(initialsGradient)
-                .border(
-                    width = 1.5.dp,
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = CircleShape
-                ),
-            contentAlignment = Alignment.Center
+        Surface(
+            modifier = Modifier.size(size),
+            shape = CircleShape,
+            color = avatarContainerColor,
+            contentColor = avatarContentColor,
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
             if (!avatarUrl.isNullOrBlank()) {
                 AsyncImage(
@@ -169,47 +148,24 @@ fun ExpressiveAvatar(
                 )
             } else {
                 Text(
-                    text = initial,
+                    text = name.firstOrNull()?.uppercase() ?: "?",
                     style = MaterialTheme.typography.titleMedium.copy(
-                        fontSize = (size.value * 0.42f).sp,
                         fontWeight = FontWeight.Bold
                     ),
-                    color = Color.White
+                    color = avatarContentColor,
+                    modifier = Modifier.fillMaxSize().wrapContentSize(Alignment.Center)
                 )
             }
         }
 
         if (isActive) {
-            Box(
-                modifier = Modifier
-                    .size(size * 0.28f)
-                    .align(Alignment.BottomEnd)
-                    .clip(CircleShape)
-                    .background(ShieldSuccessGreen)
-                    .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
+            androidx.compose.material3.Badge(
+                modifier = Modifier.align(Alignment.BottomEnd),
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
             )
         }
     }
-}
-
-@Composable
-private fun rememberAvatarBrush(name: String): Brush {
-    val hash = name.hashCode()
-    val hues = listOf(
-        Pair(Color(0xFF00B4D8), Color(0xFF0077B6)),
-        Pair(Color(0xFF7209B7), Color(0xFF3F37C9)),
-        Pair(Color(0xFFF72585), Color(0xFFB5179E)),
-        Pair(Color(0xFF4CC9F0), Color(0xFF4361EE)),
-        Pair(Color(0xFF06D6A0), Color(0xFF073B4C)),
-        Pair(Color(0xFFFF9E00), Color(0xFFFF5400))
-    )
-    val index = kotlin.math.abs(hash) % hues.size
-    val (c1, c2) = hues[index]
-    return Brush.linearGradient(
-        colors = listOf(c1, c2),
-        start = Offset.Zero,
-        end = Offset(100f, 100f)
-    )
 }
 
 /**
@@ -223,48 +179,29 @@ fun ExpressiveFilterChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val bgColor by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-        label = "bgColor"
-    )
-    val textColor by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-        label = "textColor"
-    )
-
-    Surface(
-        shape = PillShape,
-        color = bgColor,
-        modifier = modifier
-            .clip(PillShape)
-            .clickable(onClick = onClick)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = text,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                color = textColor
-            )
-            if (count != null && count > 0) {
-                Spacer(modifier = Modifier.width(6.dp))
-                Surface(
-                    shape = PillShape,
-                    color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-                ) {
-                    Text(
-                        text = count.toString(),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text, style = MaterialTheme.typography.labelLarge)
+                if (count != null && count > 0) {
+                    Spacer(Modifier.width(6.dp))
+                    androidx.compose.material3.Badge {
+                        Text(if (count > 99) "99+" else count.toString())
+                    }
                 }
             }
-        }
-    }
+        },
+        shape = PillShape,
+        colors = FilterChipDefaults.filterChipColors(
+            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+        ),
+        modifier = modifier
+    )
 }
 
 /**
@@ -286,26 +223,14 @@ fun ExpressiveEmptyState(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Box(
-            modifier = Modifier
-                .size(110.dp)
-                .clip(RoundedCornerShape(32.dp))
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
-                            MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.4f)
-                        )
-                    )
-                )
-                .border(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
-                    shape = RoundedCornerShape(32.dp)
-                ),
-            contentAlignment = Alignment.Center
+        Surface(
+            modifier = Modifier.size(110.dp),
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
-            icon()
+            Box(contentAlignment = Alignment.Center) { icon() }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -337,7 +262,6 @@ fun ExpressiveEmptyState(
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary
                 ),
-                elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp),
                 modifier = Modifier.testTag("empty_state_action_button")
             ) {
                 Text(
@@ -361,48 +285,35 @@ fun ExpressiveAudioWaveform(
     barCount: Int = 24,
     modifier: Modifier = Modifier
 ) {
-    val activeColor = MaterialTheme.colorScheme.primary
-    val inactiveColor = MaterialTheme.colorScheme.outlineVariant
-
-    Canvas(modifier = modifier.height(30.dp).fillMaxWidth()) {
-        val spacing = size.width / barCount
-        val barWidth = spacing * 0.5f
-
-        for (i in 0 until barCount) {
-            val progressAtBar = i.toFloat() / barCount
-            val isPassed = progressAtBar <= progress
-            val normalizedHeight = 0.25f + 0.75f * kotlin.math.abs(kotlin.math.sin((i * 0.45f).toDouble())).toFloat()
-            val barHeight = size.height * normalizedHeight
-
-            val x = i * spacing + (spacing - barWidth) / 2
-            val yTop = (size.height - barHeight) / 2
-            val yBottom = yTop + barHeight
-
-            drawLine(
-                color = if (isPassed) activeColor else inactiveColor,
-                start = Offset(x, yTop),
-                end = Offset(x, yBottom),
-                strokeWidth = barWidth,
-                cap = StrokeCap.Round
-            )
-        }
-    }
+    androidx.compose.material3.LinearProgressIndicator(
+        progress = { progress.coerceIn(0f, 1f) },
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.primary,
+        trackColor = MaterialTheme.colorScheme.outlineVariant
+    )
 }
 
 /**
  * Expressive message delivery status indicator (single check, double check, colored double check).
  */
 @Composable
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 fun ExpressiveReceiptIcon(
     status: String,
     modifier: Modifier = Modifier
 ) {
     when (status) {
+        "sending" -> {
+            LoadingIndicator(
+                modifier = modifier.size(15.dp),
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
         "read" -> {
             Icon(
                 imageVector = Icons.Default.DoneAll,
                 contentDescription = "Read",
-                tint = ShieldActiveGlow,
+                tint = MaterialTheme.colorScheme.primary,
                 modifier = modifier.size(15.dp)
             )
         }
@@ -422,6 +333,14 @@ fun ExpressiveReceiptIcon(
                 modifier = modifier.size(14.dp)
             )
         }
+        "failed" -> {
+            Icon(
+                imageVector = Icons.Default.ErrorOutline,
+                contentDescription = "Message failed to send",
+                tint = MaterialTheme.colorScheme.error,
+                modifier = modifier.size(15.dp)
+            )
+        }
     }
 }
 
@@ -429,14 +348,15 @@ fun ExpressiveReceiptIcon(
  * Expressive tactile bounce modifier applying subtle physics spring feedback on press.
  */
 fun Modifier.tactileBounce(pressedScale: Float = 0.96f): Modifier = composed {
+    val motionEnabled = LocalExpressiveMotionEnabled.current
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (isPressed) pressedScale else 1f,
-        animationSpec = spring(
+        targetValue = if (motionEnabled && isPressed) pressedScale else 1f,
+        animationSpec = if (motionEnabled) spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMediumLow
-        ),
+        ) else snap(),
         label = "tactile_bounce"
     )
     this.graphicsLayer {
@@ -448,6 +368,7 @@ fun Modifier.tactileBounce(pressedScale: Float = 0.96f): Modifier = composed {
 /**
  * Expressive contained loading indicator matching M3 Expressive circular progress style.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ExpressiveContainedLoadingIndicator(
     modifier: Modifier = Modifier,
@@ -460,10 +381,9 @@ fun ExpressiveContainedLoadingIndicator(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center
     ) {
-        CircularProgressIndicator(
+        LoadingIndicator(
             modifier = Modifier.size(size),
-            color = color,
-            strokeWidth = 2.dp
+            color = color
         )
         if (text != null) {
             Spacer(modifier = Modifier.width(8.dp))
@@ -477,3 +397,12 @@ fun ExpressiveContainedLoadingIndicator(
     }
 }
 
+@Composable
+fun ExpressiveWaveform(progress: Float, playing: Boolean, modifier: Modifier = Modifier) {
+    androidx.compose.material3.LinearProgressIndicator(
+        progress = { progress.coerceIn(0f, 1f) },
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.primary,
+        trackColor = MaterialTheme.colorScheme.outlineVariant
+    )
+}

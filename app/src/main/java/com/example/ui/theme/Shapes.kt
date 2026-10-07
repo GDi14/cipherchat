@@ -6,11 +6,11 @@ import androidx.compose.material3.Shapes
 import androidx.compose.ui.unit.dp
 
 val ExpressiveShapes = Shapes(
-    extraSmall = RoundedCornerShape(8.dp),
-    small = RoundedCornerShape(12.dp),
-    medium = RoundedCornerShape(18.dp),
-    large = RoundedCornerShape(26.dp),
-    extraLarge = RoundedCornerShape(34.dp)
+    extraSmall = RoundedCornerShape(4.dp),
+    small = RoundedCornerShape(8.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(24.dp),
+    extraLarge = RoundedCornerShape(32.dp)
 )
 
 // Material 3 Expressive specialized bubble and pill shapes
@@ -30,7 +30,8 @@ val ExpressiveIncomingBubbleShape = RoundedCornerShape(
     bottomEnd = CornerSize(22.dp)
 )
 
-val ExpressiveCardShape = RoundedCornerShape(24.dp)
-val ExpressiveButtonShape = RoundedCornerShape(20.dp)
-val ExpressiveInputShape = RoundedCornerShape(22.dp)
-val ExpressiveSheetShape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
+val ExpressiveCardShape = RoundedCornerShape(28.dp)
+val ExpressiveButtonShape = RoundedCornerShape(24.dp)
+val ExpressiveInputShape = RoundedCornerShape(20.dp)
+val ExpressiveSheetShape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp)
+val ExpressiveTopSurfaceShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)

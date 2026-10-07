@@ -19,6 +19,13 @@ class SupabaseClientProvider(
     private val context: Context,
     private val securePrefs: SecurePreferencesManager
 ) {
+    init {
+        val savedUrl = securePrefs.getSupabaseUrl()
+        if (savedUrl.isNullOrBlank() || savedUrl == "https://example.supabase.co") {
+            securePrefs.saveSupabaseConfig(DEFAULT_SUPABASE_URL, DEFAULT_SUPABASE_ANON_KEY)
+        }
+    }
+
     // Default fallback credentials - can be configured in app Settings
     var currentUrl: String = securePrefs.getSupabaseUrl() ?: DEFAULT_SUPABASE_URL
         private set
@@ -66,7 +73,7 @@ class SupabaseClientProvider(
                 currentAnonKey != "placeholder-anon-key"
 
     companion object {
-        const val DEFAULT_SUPABASE_URL = "https://example.supabase.co"
-        const val DEFAULT_SUPABASE_ANON_KEY = "placeholder-anon-key"
+        const val DEFAULT_SUPABASE_URL = "https://tlmxxzrgmbeojejnwebz.supabase.co"
+        const val DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_CqGZ8X8wpvUGMI9OeFwSsA_Zw5O6pJS"
     }
 }

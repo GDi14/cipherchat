@@ -19,7 +19,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class HomeUiState(
-    val selectedTab: Int = 0, // 0: Chats, 1: Friends & Requests, 2: Profile & Settings
+    val selectedTab: Int = 0, // 0: Chats, 1: Groups, 2: Calls
+    val favoriteFriendIds: Set<String> = emptySet(),
+    val voiceOfUserEnabled: Boolean = true,
     val searchTag: String = "",
     val searchResult: ProfileEntity? = null,
     val isSearching: Boolean = false,
@@ -54,6 +56,8 @@ class HomeViewModel(
 
     private val _uiState = MutableStateFlow(
         HomeUiState(
+            favoriteFriendIds = authRepository.getFavoriteFriendIds(),
+            voiceOfUserEnabled = authRepository.isVoiceOfUserEnabled(),
             isSupabaseConfigured = supabaseProvider.isConfigured,
             supabaseUrlInput = supabaseProvider.currentUrl,
             supabaseKeyInput = supabaseProvider.currentAnonKey
@@ -73,6 +77,20 @@ class HomeViewModel(
 
     fun selectTab(index: Int) {
         _uiState.value = _uiState.value.copy(selectedTab = index, statusMessage = null, errorMessage = null)
+    }
+
+    fun toggleFavoriteFriend(friendId: String) {
+        val updated = _uiState.value.favoriteFriendIds.toMutableSet().apply {
+            if (!add(friendId)) remove(friendId)
+        }.toSet()
+        authRepository.saveFavoriteFriendIds(updated)
+        _uiState.value = _uiState.value.copy(favoriteFriendIds = updated)
+    }
+
+    fun setVoiceOfUserEnabled(enabled: Boolean) {
+        authRepository.setVoiceOfUserEnabled(enabled)
+        chatRepository.setVoiceOfUserEnabled(enabled)
+        _uiState.value = _uiState.value.copy(voiceOfUserEnabled = enabled)
     }
 
     fun onSearchTagChanged(tag: String) {

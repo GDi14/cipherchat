@@ -1,9 +1,13 @@
 package com.example.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -29,23 +33,21 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -57,144 +59,96 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.ui.theme.ExpressiveMotion
+import com.example.ui.theme.LocalExpressiveMotionEnabled
 
 // ==============================================================================
-// 1. Material 3 Expressive Connected Button Group (Bottom Navigation Bar)
-// Spec: https://m3.material.io/components/button-groups/overview
-// Connected variant: Joined buttons sharing borders in a unified container,
-// with 2dp inner padding, corner-radius morphing upon selection.
+// Primary app destinations use navigation components. Button groups and
+// segmented buttons are reserved for related actions and view filters.
 // ==============================================================================
 
-data class ConnectedNavButton(
+data class AppNavigationDestination(
     val label: String,
     val icon: ImageVector,
+    val unselectedIcon: ImageVector = icon,
     val badgeCount: Int = 0,
     val testTag: String
 )
 
 @Composable
-fun ExpressiveConnectedBottomBar(
+fun AppNavigationBar(
     selectedIndex: Int,
     onSelectIndex: (Int) -> Unit,
-    items: List<ConnectedNavButton>,
+    items: List<AppNavigationDestination>,
     modifier: Modifier = Modifier
 ) {
-    // Stock Material 3 Expressive Connected Button Group (zero outer bar background)
-    // Centers the joined buttons seamlessly above the bottom navigation insets
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(bottom = 12.dp, top = 4.dp),
-        contentAlignment = Alignment.Center
+    NavigationBar(
+        modifier = modifier.fillMaxWidth(),
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        contentColor = MaterialTheme.colorScheme.onSurface
     ) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            items.forEachIndexed { index, item ->
-                val isSelected = (index == selectedIndex)
-                val isFirst = (index == 0)
-                val isLast = (index == items.size - 1)
-
-                // Stock M3 Expressive Connected Shapes:
-                // - Unselected edge buttons have outer 24dp rounded corners and 4dp inner corners
-                // - Unselected middle buttons have flat 4dp corners
-                // - Selected button morphs into a complete pill (24dp on all 4 corners)
-                val startRadius = if (isSelected || isFirst) 24.dp else 4.dp
-                val endRadius = if (isSelected || isLast) 24.dp else 4.dp
-                val buttonShape = RoundedCornerShape(
-                    topStart = startRadius,
-                    bottomStart = startRadius,
-                    topEnd = endRadius,
-                    bottomEnd = endRadius
-                )
-
-                // Animated fill color: primaryContainer when selected, surfaceContainerHighest when unselected
-                val containerColor by animateColorAsState(
-                    targetValue = if (isSelected) MaterialTheme.colorScheme.primaryContainer
-                    else MaterialTheme.colorScheme.surfaceContainerHighest,
-                    animationSpec = tween(ExpressiveMotion.DurationMedium2, easing = ExpressiveMotion.EmphasizedDecelerateEasing),
-                    label = "stock_connected_container"
-                )
-
-                val contentColor by animateColorAsState(
-                    targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
-                    else MaterialTheme.colorScheme.onSurface,
-                    animationSpec = tween(ExpressiveMotion.DurationMedium2, easing = ExpressiveMotion.EmphasizedDecelerateEasing),
-                    label = "stock_connected_content"
-                )
-
-                val borderColor by animateColorAsState(
-                    targetValue = if (isSelected) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.outlineVariant,
-                    animationSpec = tween(ExpressiveMotion.DurationMedium2, easing = ExpressiveMotion.EmphasizedDecelerateEasing),
-                    label = "stock_connected_border"
-                )
-
-                Surface(
-                    onClick = { onSelectIndex(index) },
-                    shape = buttonShape,
-                    color = containerColor,
-                    contentColor = contentColor,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, borderColor),
-                    modifier = Modifier
-                        .height(52.dp)
-                        .testTag(item.testTag)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                        modifier = Modifier
-                            .padding(
-                                start = if (isSelected) 24.dp else 18.dp,
-                                end = if (isSelected) 26.dp else 20.dp
-                            )
-                    ) {
-                        if (item.badgeCount > 0) {
-                            BadgedBox(
-                                badge = {
-                                    Badge(
-                                        containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                                        contentColor = MaterialTheme.colorScheme.onPrimary
-                                    ) {
-                                        Text(item.badgeCount.toString())
-                                    }
-                                }
-                            ) {
-                                Icon(
-                                    imageVector = item.icon,
-                                    contentDescription = item.label,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        } else {
-                            Icon(
-                                imageVector = item.icon,
-                                contentDescription = item.label,
-                                modifier = Modifier.size(20.dp)
-                            )
+        for ((index, item) in items.withIndex()) {
+            val selected = selectedIndex == index
+            val destinationIcon = if (selected) item.icon else item.unselectedIcon
+            val icon: @Composable () -> Unit = {
+                if (item.badgeCount > 0) {
+                    BadgedBox(badge = {
+                        Badge {
+                            Text(if (item.badgeCount > 99) "99+" else item.badgeCount.toString())
                         }
-
-                        if (isSelected) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = item.label,
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1
-                            )
-                        }
+                    }) {
+                        Icon(destinationIcon, contentDescription = null)
                     }
+                } else {
+                    Icon(destinationIcon, contentDescription = null)
                 }
             }
+            NavigationBarItem(
+                selected = selected,
+                onClick = { onSelectIndex(index) },
+                icon = icon,
+                label = { Text(item.label, maxLines = 1) },
+                alwaysShowLabel = true,
+                modifier = Modifier.testTag(item.testTag)
+            )
+        }
+    }
+}
+
+@Composable
+fun AppNavigationRail(
+    selectedIndex: Int,
+    onSelectIndex: (Int) -> Unit,
+    items: List<AppNavigationDestination>,
+    modifier: Modifier = Modifier
+) {
+    NavigationRail(
+        modifier = modifier,
+        containerColor = MaterialTheme.colorScheme.surfaceContainer
+    ) {
+        for ((index, item) in items.withIndex()) {
+            val selected = selectedIndex == index
+            val destinationIcon = if (selected) item.icon else item.unselectedIcon
+            val icon: @Composable () -> Unit = {
+                if (item.badgeCount > 0) {
+                    BadgedBox(badge = {
+                        Badge { Text(if (item.badgeCount > 99) "99+" else item.badgeCount.toString()) }
+                    }) { Icon(destinationIcon, contentDescription = null) }
+                } else Icon(destinationIcon, contentDescription = null)
+            }
+            NavigationRailItem(
+                selected = selected,
+                onClick = { onSelectIndex(index) },
+                icon = icon,
+                label = { Text(item.label, maxLines = 1) },
+                alwaysShowLabel = true,
+                modifier = Modifier.testTag(item.testTag)
+            )
         }
     }
 }
@@ -221,6 +175,7 @@ fun ExpressiveFabMenu(
     items: List<FabMenuItem>,
     modifier: Modifier = Modifier
 ) {
+    val motionEnabled = LocalExpressiveMotionEnabled.current
     Box(
         modifier = modifier.wrapContentSize(),
         contentAlignment = Alignment.BottomEnd
@@ -246,39 +201,36 @@ fun ExpressiveFabMenu(
             // Menu Items List (Staggered Animation from bottom up)
             AnimatedVisibility(
                 visible = expanded,
-                enter = fadeIn(tween(ExpressiveMotion.DurationShort4)) +
+                enter = if (motionEnabled) fadeIn(tween(ExpressiveMotion.DurationShort4)) +
                         slideInVertically(
                             initialOffsetY = { it / 2 },
-                            animationSpec = tween(ExpressiveMotion.DurationMedium3, easing = ExpressiveMotion.EmphasizedDecelerateEasing)
+                            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)
                         ) + scaleIn(
                             initialScale = 0.8f,
-                            animationSpec = tween(ExpressiveMotion.DurationMedium3, easing = ExpressiveMotion.EmphasizedDecelerateEasing)
-                        ),
-                exit = fadeOut(tween(ExpressiveMotion.DurationShort2)) +
+                            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)
+                        ) else EnterTransition.None,
+                exit = if (motionEnabled) fadeOut(tween(ExpressiveMotion.DurationShort2)) +
                         slideOutVertically(
                             targetOffsetY = { it / 2 },
                             animationSpec = tween(ExpressiveMotion.DurationShort4, easing = ExpressiveMotion.EmphasizedAccelerateEasing)
                         ) + scaleOut(
                             targetScale = 0.8f,
                             animationSpec = tween(ExpressiveMotion.DurationShort4, easing = ExpressiveMotion.EmphasizedAccelerateEasing)
-                        )
+                        ) else ExitTransition.None
             ) {
                 Column(
                     horizontalAlignment = Alignment.End,
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    items.forEach { menuItem ->
-                        ElevatedCard(
+                    for (menuItem in items) {
+                        Surface(
                             onClick = {
                                 onToggleExpanded()
                                 menuItem.onClick()
                             },
-                            shape = RoundedCornerShape(20.dp),
-                            elevation = CardDefaults.elevatedCardElevation(defaultElevation = 6.dp),
-                            colors = CardDefaults.elevatedCardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                contentColor = MaterialTheme.colorScheme.onSurface
-                            ),
+                            shape = MaterialTheme.shapes.large,
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            contentColor = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.testTag(menuItem.testTag)
                         ) {
                             Row(
@@ -314,22 +266,22 @@ fun ExpressiveFabMenu(
 
             // Main Toggle FAB
             val rotationAngle by animateFloatAsState(
-                targetValue = if (expanded) 135f else 0f,
-                animationSpec = tween(ExpressiveMotion.DurationMedium3, easing = ExpressiveMotion.EmphasizedDecelerateEasing),
+                    targetValue = if (motionEnabled && expanded) 135f else 0f,
+                animationSpec = if (motionEnabled) spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow) else snap(),
                 label = "fab_rotation"
             )
 
             val fabContainerColor by animateColorAsState(
                 targetValue = if (expanded) MaterialTheme.colorScheme.surfaceContainerHigh
-                else MaterialTheme.colorScheme.primary,
-                animationSpec = tween(ExpressiveMotion.DurationMedium2),
+                else MaterialTheme.colorScheme.primaryContainer,
+                animationSpec = if (motionEnabled) tween(ExpressiveMotion.DurationMedium2) else snap(),
                 label = "fab_color"
             )
 
             val fabIconColor by animateColorAsState(
                 targetValue = if (expanded) MaterialTheme.colorScheme.onSurface
-                else MaterialTheme.colorScheme.onPrimary,
-                animationSpec = tween(ExpressiveMotion.DurationMedium2),
+                else MaterialTheme.colorScheme.onPrimaryContainer,
+                animationSpec = if (motionEnabled) tween(ExpressiveMotion.DurationMedium2) else snap(),
                 label = "fab_icon_color"
             )
 
@@ -337,10 +289,10 @@ fun ExpressiveFabMenu(
                 onClick = onToggleExpanded,
                 containerColor = fabContainerColor,
                 contentColor = fabIconColor,
-                shape = CircleShape,
-                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
+                shape = MaterialTheme.shapes.medium,
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 0.dp),
                 modifier = Modifier
-                    .size(60.dp)
+                    .size(56.dp)
                     .testTag("fab_menu_toggle_button")
             ) {
                 Icon(

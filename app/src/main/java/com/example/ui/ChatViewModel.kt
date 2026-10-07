@@ -13,9 +13,12 @@ import com.example.util.AudioRecorderHelper
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
@@ -32,6 +35,8 @@ data class ChatUiState(
     val audioCurrentSeconds: Int = 0,
     val isSending: Boolean = false,
     val selectedViewerMedia: MessageEntity? = null,
+    val sendingMediaUri: Uri? = null,
+    val sendingMediaType: String? = null,
     val errorMessage: String? = null,
     val scrollToMessageId: String? = null
 )
@@ -43,11 +48,22 @@ class ChatViewModel(
 ) : ViewModel() {
 
     val myUserId: String = chatRepository.myUserId
+    val myDisplayName: String get() = chatRepository.getMyDisplayName()
 
-    val messages: StateFlow<List<MessageEntity>> = chatRepository.getMessagesForConversation(conversationId)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    private val persistedMessages: StateFlow<List<MessageEntity>> =
+        chatRepository.getMessagesForConversation(conversationId)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    private val _pendingMessages = MutableStateFlow<List<MessageEntity>>(emptyList())
+    val messages: StateFlow<List<MessageEntity>> = combine(persistedMessages, _pendingMessages) { persisted, pending ->
+        val persistedIds = persisted.mapTo(HashSet()) { it.id }
+        (persisted + pending.filterNot { it.id in persistedIds }).sortedBy { it.timestamp }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val typingUsers: StateFlow<Map<String, Set<String>>> = chatRepository.typingUsers
+    val voiceOfUserEnabled: StateFlow<Boolean> = chatRepository.voiceOfUserEnabled
+    val emphasisAnimationMessageIds: StateFlow<Set<String>> = chatRepository.emphasisAnimationMessageIds
+
+    fun completeEmphasisAnimation(messageId: String) = chatRepository.completeEmphasisAnimation(messageId)
 
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
@@ -59,8 +75,15 @@ class ChatViewModel(
     private var typingTimerJob: Job? = null
 
     init {
+        viewModelScope.launch {
+            persistedMessages.collect { stored ->
+                if (stored.isNotEmpty()) {
+                    val storedIds = stored.mapTo(HashSet()) { it.id }
+                    _pendingMessages.update { pending -> pending.filterNot { it.id in storedIds } }
+                }
+            }
+        }
         loadConversation()
-        markRead()
     }
 
     private fun loadConversation() {
@@ -71,9 +94,17 @@ class ChatViewModel(
     }
 
     fun markRead() {
+        chatRepository.activateConversation(conversationId)
         viewModelScope.launch {
             chatRepository.markConversationAsRead(conversationId)
         }
+    }
+
+    fun onConversationHidden() {
+        chatRepository.closeActiveConversation(conversationId)
+        chatRepository.clearEmphasisAnimation(messages.value.map { it.id })
+        typingTimerJob?.cancel()
+        viewModelScope.launch { chatRepository.setTyping(conversationId, false) }
     }
 
     fun onInputTextChanged(text: String) {
@@ -92,30 +123,52 @@ class ChatViewModel(
         _uiState.value = _uiState.value.copy(replyingTo = message)
     }
 
-    fun sendTextMessage() {
+    fun sendTextMessage(): MessageEntity? {
         val text = _uiState.value.inputText.trim()
-        if (text.isBlank()) return
+        if (text.isBlank()) return null
         val replyTo = _uiState.value.replyingTo
+        val timestamp = System.currentTimeMillis()
+        val provisional = MessageEntity(
+            id = java.util.UUID.randomUUID().toString(),
+            conversationId = conversationId,
+            senderId = myUserId,
+            senderName = myDisplayName,
+            recipientId = _uiState.value.conversation?.otherUserId,
+            plaintextBody = text,
+            replyToId = replyTo?.id,
+            replySnippet = replyTo?.let { if (it.plaintextBody.isNotBlank()) it.plaintextBody.take(60) else "[Media]" },
+            status = "sending",
+            timestamp = timestamp
+        )
 
+        // Publish the row synchronously so Compose can lay it out before the
+        // repository starts encryption or any network work.
+        _pendingMessages.update { it + provisional }
         _uiState.value = _uiState.value.copy(
             inputText = "",
             replyingTo = null,
-            isSending = true,
             errorMessage = null
         )
 
         viewModelScope.launch {
             chatRepository.setTyping(conversationId, false)
-            val result = chatRepository.sendMessage(conversationId, text, replyTo)
-            result.onSuccess {
-                _uiState.value = _uiState.value.copy(isSending = false)
-            }.onFailure { err ->
+            val result = chatRepository.sendMessage(
+                conversationId = conversationId,
+                text = text,
+                replyToMessage = replyTo,
+                messageId = provisional.id,
+                timestamp = provisional.timestamp
+            )
+            result.onFailure { err ->
+                _pendingMessages.update { pending ->
+                    pending.map { if (it.id == provisional.id) it.copy(status = "failed") else it }
+                }
                 _uiState.value = _uiState.value.copy(
-                    isSending = false,
                     errorMessage = err.localizedMessage ?: "Failed to send encrypted message"
                 )
             }
         }
+        return provisional
     }
 
     fun startVoiceRecording(): Boolean {
@@ -177,7 +230,8 @@ class ChatViewModel(
 
     fun sendMediaUri(uri: Uri, mimeType: String) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isSending = true, errorMessage = null)
+            _uiState.value = _uiState.value.copy(isSending = true, sendingMediaUri = uri,
+                sendingMediaType = mimeType, errorMessage = null)
             try {
                 val inputStream = context.contentResolver.openInputStream(uri)
                 val ext = when {
@@ -197,7 +251,8 @@ class ChatViewModel(
                     mimeType = mimeType,
                     replyToMessage = _uiState.value.replyingTo
                 )
-                _uiState.value = _uiState.value.copy(isSending = false, replyingTo = null)
+                _uiState.value = _uiState.value.copy(isSending = false, sendingMediaUri = null,
+                    sendingMediaType = null, replyingTo = null)
                 sendRes.onFailure { err ->
                     _uiState.value = _uiState.value.copy(
                         errorMessage = err.localizedMessage ?: "Media send failed"
@@ -207,6 +262,8 @@ class ChatViewModel(
                 e.printStackTrace()
                 _uiState.value = _uiState.value.copy(
                     isSending = false,
+                    sendingMediaUri = null,
+                    sendingMediaType = null,
                     errorMessage = e.localizedMessage ?: "Could not process media"
                 )
             }
@@ -295,8 +352,20 @@ class ChatViewModel(
         _uiState.value = _uiState.value.copy(scrollToMessageId = null)
     }
 
+    fun resetSessionWithPeer(peerId: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val result = chatRepository.resetSession(peerId)
+            result.onSuccess {
+                onResult(true, "Secure session successfully reset!")
+            }.onFailure { err ->
+                onResult(false, err.localizedMessage ?: "Failed to reset session")
+            }
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
+        chatRepository.closeActiveConversation(conversationId)
         audioPlayer.stop()
         audioRecorder.cancelRecording()
     }

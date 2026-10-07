@@ -48,8 +48,34 @@ interface MessageDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(messages: List<MessageEntity>)
 
-    @Query("UPDATE messages SET status = :status WHERE id = :id")
+    @Query("""
+        UPDATE messages SET status = CASE
+            WHEN status = 'read' OR :status = 'read' THEN 'read'
+            WHEN status = 'delivered' OR :status = 'delivered' THEN 'delivered'
+            WHEN status = 'failed' AND :status IN ('sending', 'sent') THEN 'failed'
+            ELSE :status
+        END WHERE id = :id
+    """)
     suspend fun updateStatus(id: String, status: String)
+
+    @Query("""
+        UPDATE messages SET
+            recipientId = :recipientId,
+            messageType = :messageType,
+            status = CASE
+                WHEN status = 'read' OR :status = 'read' THEN 'read'
+                WHEN status = 'delivered' OR :status = 'delivered' THEN 'delivered'
+                WHEN status = 'failed' AND :status IN ('sending', 'sent') THEN 'failed'
+                ELSE :status
+            END
+        WHERE id = :id
+    """)
+    suspend fun updateOutgoingMessageState(
+        id: String,
+        recipientId: String?,
+        messageType: Int,
+        status: String
+    )
 
     @Query("UPDATE messages SET status = :status WHERE conversationId = :conversationId AND senderId != :myUserId AND status != 'read'")
     suspend fun markAllIncomingAsRead(conversationId: String, myUserId: String, status: String = "read")

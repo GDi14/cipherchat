@@ -9,8 +9,12 @@ data class MessagePayload(
     val text: String = "",
     val replyToId: String? = null,
     val replySnippet: String? = null,
-    val media: MediaPayload? = null
+    val media: MediaPayload? = null,
+    val textEmphasisRanges: List<TextEmphasisRange> = emptyList()
 )
+
+@Serializable
+data class TextEmphasisRange(val start: Int, val end: Int)
 
 @Serializable
 data class MediaPayload(
@@ -40,5 +44,13 @@ object MessagePayloadCodec {
             // Fallback for simple legacy text
             MessagePayload(text = str)
         }
+    }
+
+    fun encodeEmphasisRanges(ranges: List<TextEmphasisRange>): String = json.encodeToString(ranges)
+
+    fun decodeEmphasisRanges(encoded: String): List<TextEmphasisRange> = try {
+        json.decodeFromString<List<TextEmphasisRange>>(encoded)
+    } catch (_: Exception) {
+        emptyList()
     }
 }

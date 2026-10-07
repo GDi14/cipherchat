@@ -1,7 +1,7 @@
 package com.example.ui.components
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -9,15 +9,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.media.AudioPlayerHelper
-import com.example.ui.theme.EditorialTypography
-import com.example.ui.theme.ExperimentalMaterial3ExpressiveApi
+import com.example.ui.theme.ExpressiveIncomingBubbleShape
+import com.example.ui.theme.ExpressiveOutgoingBubbleShape
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun VoiceMemoBubble(
     audioUrlOrPath: String,
@@ -49,11 +53,7 @@ fun VoiceMemoBubble(
         }
     }
 
-    val bubbleShape = if (isMe) {
-        RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 4.dp)
-    } else {
-        RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 4.dp, bottomEnd = 20.dp)
-    }
+    val bubbleShape = if (isMe) ExpressiveOutgoingBubbleShape else ExpressiveIncomingBubbleShape
 
     val containerColor = if (isMe) {
         MaterialTheme.colorScheme.primaryContainer
@@ -100,7 +100,7 @@ fun VoiceMemoBubble(
                         containerColor = if (isMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer,
                         contentColor = if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
                     ),
-                    modifier = Modifier.size(42.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
                         imageVector = if (isThisMemoPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -112,6 +112,8 @@ fun VoiceMemoBubble(
                     modifier = Modifier.weight(1f)
                 ) {
                     // Audio Progress / Waveform Indicator
+                    ExpressiveWaveform(currentProgress, isThisMemoPlaying,
+                        Modifier.fillMaxWidth().height(28.dp).padding(horizontal = 4.dp))
                     Slider(
                         value = currentProgress,
                         onValueChange = { fraction ->
@@ -123,9 +125,11 @@ fun VoiceMemoBubble(
                         colors = SliderDefaults.colors(
                             thumbColor = if (isMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
                             activeTrackColor = if (isMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
-                            inactiveTrackColor = contentColor.copy(alpha = 0.2f)
+                            inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
                         ),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().semantics {
+                            contentDescription = "Voice memo playback position"
+                        }
                     )
 
                     Row(
@@ -135,13 +139,12 @@ fun VoiceMemoBubble(
                     ) {
                         Text(
                             text = "${formatDuration(memoPositionMs)} / ${formatDuration(resolvedDurationMs)}",
-                            style = EditorialTypography.MonospacedNumeral,
+                            style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
                             color = contentColor.copy(alpha = 0.8f),
-                            fontSize = 11.sp
                         )
 
                         // Speed multiplier toggle button
-                        Surface(
+                        FilledTonalButton(
                             onClick = {
                                 val nextSpeed = when (speedMultiplier) {
                                     1.0f -> 1.5f
@@ -150,15 +153,21 @@ fun VoiceMemoBubble(
                                 }
                                 audioPlayerHelper.setPlaybackSpeed(nextSpeed)
                             },
-                            shape = MaterialTheme.shapes.large,
-                            color = contentColor.copy(alpha = 0.12f)
+                            shape = CircleShape,
+                            contentPadding = PaddingValues(horizontal = 12.dp),
+                            modifier = Modifier
+                                .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                                .semantics {
+                                    role = Role.Button
+                                    contentDescription = "Playback speed"
+                                    stateDescription = "${speedMultiplier} times"
+                                }
                         ) {
                             Text(
-                                text = "${speedMultiplier}x",
-                                style = MaterialTheme.typography.labelSmall,
+                                text = "${speedMultiplier}×",
+                                style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = contentColor,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
                             )
                         }
                     }

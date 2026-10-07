@@ -8,6 +8,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
 private val ExpressiveDarkColorScheme = darkColorScheme(
@@ -28,13 +29,18 @@ private val ExpressiveDarkColorScheme = darkColorScheme(
     errorContainer = ExpressiveDarkErrorContainer,
     onErrorContainer = ExpressiveDarkOnErrorContainer,
     background = ExpressiveDarkBackground,
-    onBackground = ExpressiveDarkSurfaceContainerHighest,
+    onBackground = Color(0xFFE8E7F0),
     surface = ExpressiveDarkSurface,
-    onSurface = ExpressiveLightBackground,
+    onSurface = Color(0xFFE8E7F0),
     surfaceVariant = ExpressiveDarkSurfaceContainerHigh,
-    onSurfaceVariant = ExpressiveLightOutlineVariant,
+    onSurfaceVariant = Color(0xFFC4C2D0),
     outline = ExpressiveDarkOutline,
-    outlineVariant = ExpressiveDarkOutlineVariant
+    outlineVariant = ExpressiveDarkOutlineVariant,
+    surfaceContainerLowest = Color(0xFF0B0B12),
+    surfaceContainerLow = Color(0xFF191923),
+    surfaceContainer = ExpressiveDarkSurfaceContainer,
+    surfaceContainerHigh = ExpressiveDarkSurfaceContainerHigh,
+    surfaceContainerHighest = ExpressiveDarkSurfaceContainerHighest
 )
 
 private val ExpressiveLightColorScheme = lightColorScheme(
@@ -55,19 +61,24 @@ private val ExpressiveLightColorScheme = lightColorScheme(
     errorContainer = ExpressiveLightErrorContainer,
     onErrorContainer = ExpressiveLightOnErrorContainer,
     background = ExpressiveLightBackground,
-    onBackground = ExpressiveDarkBackground,
+    onBackground = Color(0xFF1B1A24),
     surface = ExpressiveLightSurface,
-    onSurface = ExpressiveDarkSurface,
+    onSurface = Color(0xFF1B1A24),
     surfaceVariant = ExpressiveLightSurfaceContainer,
-    onSurfaceVariant = ExpressiveLightOutline,
+    onSurfaceVariant = Color(0xFF494755),
     outline = ExpressiveLightOutline,
-    outlineVariant = ExpressiveLightOutlineVariant
+    outlineVariant = ExpressiveLightOutlineVariant,
+    surfaceContainerLowest = Color(0xFFFFFFFF),
+    surfaceContainerLow = Color(0xFFF5F2FC),
+    surfaceContainer = ExpressiveLightSurfaceContainer,
+    surfaceContainerHigh = ExpressiveLightSurfaceContainerHigh,
+    surfaceContainerHighest = ExpressiveLightSurfaceContainerHighest
 )
 
 @Composable
 fun MyApplicationTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false, // false to preserve ShieldChat's signature high-tech expressive aesthetic
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {

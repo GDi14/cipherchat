@@ -9,6 +9,8 @@ import com.example.crypto.MessagePayloadCodec
 import com.example.crypto.OneTimePrekeyItem
 import com.example.crypto.PublicPrekeyBundle
 import com.example.crypto.SignalProtocolManager
+import com.example.crypto.TextEmphasisRange
+import com.example.crypto.VoiceOfUserEmphasis
 import com.example.data.local.AppDatabase
 import com.example.data.local.ConversationEntity
 import com.example.data.local.MessageEntity
@@ -36,8 +38,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import org.whispersystems.libsignal.SignalProtocolAddress
 import java.io.File
 import java.util.UUID
 
@@ -48,12 +53,39 @@ class ChatRepository(
     private val supabaseProvider: SupabaseClientProvider,
     private val database: AppDatabase
 ) {
+    @Volatile private var activeConversationId: String? = null
+
+    fun closeActiveConversation(conversationId: String) {
+        if (activeConversationId == conversationId) activeConversationId = null
+    }
+    fun activateConversation(conversationId: String) {
+        activeConversationId = conversationId
+    }
     val myUserId: String = securePrefs.getOrCreateUserId()
+    fun getMyDisplayName(): String = securePrefs.getDisplayName() ?: "Me"
     private val scope = CoroutineScope(Dispatchers.IO + Job())
+    private val encryptionMutex = Mutex()
 
     // Typing status per conversation: conversationId -> set of userIds typing
     private val _typingUsers = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
     val typingUsers: StateFlow<Map<String, Set<String>>> = _typingUsers.asStateFlow()
+    private val _voiceOfUserEnabled = MutableStateFlow(securePrefs.isVoiceOfUserEnabled())
+    val voiceOfUserEnabled: StateFlow<Boolean> = _voiceOfUserEnabled.asStateFlow()
+    private val _emphasisAnimationMessageIds = MutableStateFlow<Set<String>>(emptySet())
+    val emphasisAnimationMessageIds: StateFlow<Set<String>> = _emphasisAnimationMessageIds.asStateFlow()
+
+    fun setVoiceOfUserEnabled(enabled: Boolean) {
+        securePrefs.setVoiceOfUserEnabled(enabled)
+        _voiceOfUserEnabled.value = enabled
+    }
+
+    fun completeEmphasisAnimation(messageId: String) {
+        _emphasisAnimationMessageIds.value = _emphasisAnimationMessageIds.value - messageId
+    }
+
+    fun clearEmphasisAnimation(messageIds: Collection<String>) {
+        _emphasisAnimationMessageIds.value = _emphasisAnimationMessageIds.value - messageIds.toSet()
+    }
 
     private var realtimeChannelJob: Job? = null
 
@@ -134,31 +166,57 @@ class ChatRepository(
     suspend fun sendMessage(
         conversationId: String,
         text: String,
-        replyToMessage: MessageEntity? = null
+        replyToMessage: MessageEntity? = null,
+        messageId: String = UUID.randomUUID().toString(),
+        timestamp: Long = System.currentTimeMillis()
     ): Result<MessageEntity> = withContext(Dispatchers.IO) {
+        var optimisticMessageSaved = false
         try {
             val conv = database.conversationDao().getConversationById(conversationId)
                 ?: return@withContext Result.failure(IllegalStateException("Conversation not found"))
 
+            val textEmphasisRanges = if (_voiceOfUserEnabled.value) VoiceOfUserEmphasis.detect(text.trim()) else emptyList()
             val payload = MessagePayload(
                 text = text.trim(),
                 replyToId = replyToMessage?.id,
                 replySnippet = replyToMessage?.let {
                     if (it.plaintextBody.isNotBlank()) it.plaintextBody.take(60) else "[Media]"
-                }
+                },
+                textEmphasisRanges = textEmphasisRanges
             )
             val payloadBytes = MessagePayloadCodec.encode(payload)
-            val messageId = UUID.randomUUID().toString()
+
+            // Persist a local sending bubble before encryption or network work so
+            // the message list can render it immediately and keep it on failure.
+            val optimisticMessage = MessageEntity(
+                id = messageId,
+                conversationId = conversationId,
+                senderId = myUserId,
+                senderName = securePrefs.getDisplayName() ?: "Me",
+                recipientId = conv.otherUserId,
+                plaintextBody = text.trim(),
+                replyToId = replyToMessage?.id,
+                replySnippet = payload.replySnippet,
+                textEmphasisJson = MessagePayloadCodec.encodeEmphasisRanges(textEmphasisRanges),
+                status = "sending",
+                timestamp = timestamp
+            )
+            database.messageDao().insertOrUpdate(optimisticMessage)
+            if (textEmphasisRanges.isNotEmpty()) _emphasisAnimationMessageIds.value += messageId
+            database.conversationDao().updateLastMessage(conversationId, text.trim(), timestamp)
+            optimisticMessageSaved = true
 
             val isDirect = conv.type == "direct"
             val recipientId = conv.otherUserId
 
             // Encrypt with libsignal
-            val encResult = if (isDirect && recipientId != null) {
-                ensureDirectSession(recipientId)
-                signalManager.encryptDirectMessage(recipientId, payloadBytes)
-            } else {
-                signalManager.encryptGroupMessage(conversationId, payloadBytes)
+            val encResult = encryptionMutex.withLock {
+                if (isDirect && recipientId != null) {
+                    ensureDirectSession(recipientId)
+                    signalManager.encryptDirectMessage(recipientId, payloadBytes)
+                } else {
+                    signalManager.encryptGroupMessage(conversationId, payloadBytes)
+                }
             }
 
             // Save to Supabase if connected
@@ -183,26 +241,22 @@ class ChatRepository(
                 }
             }
 
-            // Save to Room
-            val entity = MessageEntity(
+            database.messageDao().updateOutgoingMessageState(
                 id = messageId,
-                conversationId = conversationId,
-                senderId = myUserId,
-                senderName = securePrefs.getDisplayName() ?: "Me",
                 recipientId = recipientId,
-                plaintextBody = text.trim(),
                 messageType = encResult.type,
-                replyToId = replyToMessage?.id,
-                replySnippet = payload.replySnippet,
-                status = remoteStatus,
-                timestamp = System.currentTimeMillis()
+                status = remoteStatus
             )
-            database.messageDao().insertOrUpdate(entity)
-            database.conversationDao().updateLastMessage(conversationId, text.trim(), entity.timestamp)
+            val entity = database.messageDao().getMessageById(messageId)
+                ?: error("Optimistic message disappeared before send completed")
 
             Result.success(entity)
         } catch (e: Exception) {
             e.printStackTrace()
+            if (optimisticMessageSaved) {
+                runCatching { database.messageDao().updateStatus(messageId, "failed") }
+            }
+            _emphasisAnimationMessageIds.value -= messageId
             Result.failure(e)
         }
     }
@@ -265,11 +319,13 @@ class ChatRepository(
             val isDirect = conv.type == "direct"
             val recipientId = conv.otherUserId
 
-            val encResult = if (isDirect && recipientId != null) {
-                ensureDirectSession(recipientId)
-                signalManager.encryptDirectMessage(recipientId, payloadBytes)
-            } else {
-                signalManager.encryptGroupMessage(conversationId, payloadBytes)
+            val encResult = encryptionMutex.withLock {
+                if (isDirect && recipientId != null) {
+                    ensureDirectSession(recipientId)
+                    signalManager.encryptDirectMessage(recipientId, payloadBytes)
+                } else {
+                    signalManager.encryptGroupMessage(conversationId, payloadBytes)
+                }
             }
 
             // Save to Supabase
@@ -288,7 +344,7 @@ class ChatRepository(
                 client.postgrest["messages"].insert(dto)
             }
 
-            val displayLabel = if (caption.isNotBlank()) caption.trim() else "[$snippet]"
+            val displayLabel = if (caption.isNotBlank()) "$snippet · ${caption.trim()}" else "[$snippet]"
 
             val entity = MessageEntity(
                 id = messageId,
@@ -363,6 +419,7 @@ class ChatRepository(
      * Marks messages as read in the conversation and notifies Supabase receipts.
      */
     suspend fun markConversationAsRead(conversationId: String) = withContext(Dispatchers.IO) {
+        activateConversation(conversationId)
         try {
             database.conversationDao().clearUnreadCount(conversationId)
             database.messageDao().markAllIncomingAsRead(conversationId, myUserId, "read")
@@ -450,6 +507,21 @@ class ChatRepository(
         )
 
         signalManager.initializeSessionWithRecipient(recipientId, bundle)
+    }
+
+    /**
+     * Explicitly resets a 1:1 secure session with a user and re-initializes it.
+     */
+    suspend fun resetSession(otherUserId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val address = SignalProtocolAddress(otherUserId, 1)
+            signalManager.store.deleteSession(address)
+            ensureDirectSession(otherUserId)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Result.failure(e)
+        }
     }
 
     /**
@@ -572,10 +644,27 @@ class ChatRepository(
             val conv = database.conversationDao().getConversationById(dto.conversationId)
             val isDirect = conv?.type == "direct" || dto.recipientId == myUserId
 
-            val decryptedBytes = if (isDirect) {
-                signalManager.decryptDirectMessage(dto.senderId, dto.messageType, dto.encryptedBody)
-            } else {
-                signalManager.decryptGroupMessage(dto.conversationId, dto.senderId, dto.encryptedBody)
+            val decryptedBytes = try {
+                if (isDirect) {
+                    signalManager.decryptDirectMessage(dto.senderId, dto.messageType, dto.encryptedBody)
+                } else {
+                    signalManager.decryptGroupMessage(dto.conversationId, dto.senderId, dto.encryptedBody)
+                }
+            } catch (decryptionEx: Exception) {
+                decryptionEx.printStackTrace()
+                if (isDirect && supabaseProvider.isConfigured) {
+                    try {
+                        val address = SignalProtocolAddress(dto.senderId, 1)
+                        signalManager.store.deleteSession(address)
+                        ensureDirectSession(dto.senderId)
+                        signalManager.decryptDirectMessage(dto.senderId, dto.messageType, dto.encryptedBody)
+                    } catch (retryEx: Exception) {
+                        retryEx.printStackTrace()
+                        throw decryptionEx
+                    }
+                } else {
+                    throw decryptionEx
+                }
             }
 
             val payload = MessagePayloadCodec.decode(decryptedBytes)
@@ -583,12 +672,13 @@ class ChatRepository(
             // Lookup sender name
             val senderProfile = database.profileDao().getProfileById(dto.senderId)
             val senderName = senderProfile?.displayName ?: "Friend"
+            val conversationIsVisible = activeConversationId == dto.conversationId
 
             val displaySnippet = when {
                 payload.media != null -> when {
-                    payload.media.mimeType.startsWith("audio") -> "Voice Note (${payload.media.durationSeconds}s)"
-                    payload.media.mimeType.startsWith("video") -> "Video"
-                    else -> "Photo"
+                    payload.media.mimeType.startsWith("audio") -> "Voice Note (${payload.media.durationSeconds}s)" + payload.text.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+                    payload.media.mimeType.startsWith("video") -> "Video" + payload.text.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+                    else -> "Photo" + payload.text.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
                 }
                 payload.text.isNotBlank() -> payload.text
                 else -> "[Encrypted Message]"
@@ -604,18 +694,27 @@ class ChatRepository(
                 messageType = dto.messageType,
                 replyToId = payload.replyToId,
                 replySnippet = payload.replySnippet,
+                textEmphasisJson = MessagePayloadCodec.encodeEmphasisRanges(payload.textEmphasisRanges),
                 mediaPath = payload.media?.path,
                 mediaType = payload.media?.mimeType,
                 mediaKey = payload.media?.key,
                 mediaIv = payload.media?.iv,
                 mediaDuration = payload.media?.durationSeconds ?: 0,
-                status = "delivered",
+                status = if (conversationIsVisible) "read" else "delivered",
                 timestamp = System.currentTimeMillis()
             )
 
             database.messageDao().insertOrUpdate(entity)
+            if (conversationIsVisible && _voiceOfUserEnabled.value && payload.textEmphasisRanges.isNotEmpty()) {
+                _emphasisAnimationMessageIds.value += msgId
+            }
             database.conversationDao().updateLastMessage(dto.conversationId, displaySnippet, entity.timestamp)
-            database.conversationDao().incrementUnreadCount(dto.conversationId)
+            if (!conversationIsVisible) {
+                database.conversationDao().incrementUnreadCount(dto.conversationId)
+            } else {
+                database.conversationDao().clearUnreadCount(dto.conversationId)
+                database.messageDao().markAllIncomingAsRead(dto.conversationId, myUserId, "read")
+            }
 
             // Auto download voice notes/media if needed
             if (payload.media != null) {
@@ -624,14 +723,14 @@ class ChatRepository(
                 }
             }
 
-            // Send delivered receipt
+            // A message arriving while its chat is visible is immediately read.
             if (supabaseProvider.isConfigured) {
                 val client = supabaseProvider.getClient()
                 client.postgrest["message_receipts"].upsert(
                     MessageReceiptDto(
                         messageId = msgId,
                         userId = myUserId,
-                        status = "delivered"
+                        status = if (conversationIsVisible) "read" else "delivered"
                     )
                 )
             }

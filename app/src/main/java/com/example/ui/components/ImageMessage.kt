@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
@@ -48,7 +47,7 @@ fun ImageMessage(
             modifier = modifier
                 .fillMaxWidth()
                 .heightIn(max = 280.dp)
-                .clip(RoundedCornerShape(24.dp))
+                .clip(MaterialTheme.shapes.large)
                 .clickable { onOpen(localPath) }
         )
     } else {

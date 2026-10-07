@@ -11,8 +11,7 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 
 // ==============================================================================
-// Material 3 Expressive Typography with Google Sans Flex
-// Utilizes Variable Font Axes: Weight (wght), Width (wdth), Slant (slnt), Grade (GRAD)
+// Expressive editorial headings paired with a highly legible Google Sans Flex body.
 // ==============================================================================
 
 // Display: Expressive, wider width (110f), high grade (+50), bold weight (800)
@@ -99,47 +98,51 @@ val GoogleSansFlexSlanted = FontFamily(
     )
 )
 
+val ShieldDisplay = FontFamily(
+    Font(resId = R.font.syne, weight = FontWeight.Bold)
+)
+
 val ExpressiveTypography = Typography(
     displayLarge = TextStyle(
-        fontFamily = GoogleSansFlexDisplay,
-        fontWeight = FontWeight.ExtraBold,
-        fontSize = 44.sp,
-        lineHeight = 52.sp,
-        letterSpacing = (-0.5).sp
+        fontFamily = ShieldDisplay,
+        fontWeight = FontWeight.Bold,
+        fontSize = 57.sp,
+        lineHeight = 64.sp,
+        letterSpacing = (-1.5).sp
     ),
     displayMedium = TextStyle(
-        fontFamily = GoogleSansFlexDisplay,
+        fontFamily = ShieldDisplay,
+        fontWeight = FontWeight.Bold,
+        fontSize = 45.sp,
+        lineHeight = 52.sp,
+        letterSpacing = (-1).sp
+    ),
+    displaySmall = TextStyle(
+        fontFamily = ShieldDisplay,
         fontWeight = FontWeight.Bold,
         fontSize = 36.sp,
         lineHeight = 44.sp,
-        letterSpacing = (-0.25).sp
-    ),
-    displaySmall = TextStyle(
-        fontFamily = GoogleSansFlexDisplay,
-        fontWeight = FontWeight.Bold,
-        fontSize = 30.sp,
-        lineHeight = 38.sp,
-        letterSpacing = (-0.2).sp
+        letterSpacing = (-0.5).sp
     ),
     headlineLarge = TextStyle(
-        fontFamily = GoogleSansFlexHeadline,
+        fontFamily = ShieldDisplay,
         fontWeight = FontWeight.Bold,
-        fontSize = 28.sp,
-        lineHeight = 34.sp,
-        letterSpacing = (-0.2).sp
+        fontSize = 32.sp,
+        lineHeight = 40.sp,
+        letterSpacing = (-0.5).sp
     ),
     headlineMedium = TextStyle(
-        fontFamily = GoogleSansFlexHeadline,
+        fontFamily = ShieldDisplay,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 24.sp,
-        lineHeight = 32.sp,
+        fontSize = 28.sp,
+        lineHeight = 36.sp,
         letterSpacing = 0.sp
     ),
     headlineSmall = TextStyle(
-        fontFamily = GoogleSansFlexHeadline,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 20.sp,
-        lineHeight = 28.sp,
+        fontFamily = ShieldDisplay,
+        fontWeight = FontWeight.Bold,
+        fontSize = 24.sp,
+        lineHeight = 32.sp,
         letterSpacing = 0.sp
     ),
     titleLarge = TextStyle(
@@ -201,7 +204,7 @@ val ExpressiveTypography = Typography(
     labelSmall = TextStyle(
         fontFamily = GoogleSansFlexLabel,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 10.sp,
+        fontSize = 11.sp,
         lineHeight = 14.sp,
         letterSpacing = 0.5.sp
     )
@@ -210,6 +213,3 @@ val ExpressiveTypography = Typography(
 object EditorialTypography {
     val MonospacedNumeral = TextStyle.Default
 }
-
-annotation class ExperimentalMaterial3ExpressiveApi
-

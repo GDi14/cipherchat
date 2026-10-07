@@ -3,10 +3,6 @@ package com.example.ui
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,51 +11,34 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.AlternateEmail
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilledTonalIconButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SuggestionChip
-import androidx.compose.material3.SuggestionChipDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -73,379 +52,167 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
+import com.example.ui.components.ExpressiveContainedLoadingIndicator
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.example.ui.components.ExpressiveContainedLoadingIndicator
-import com.example.ui.components.tactileBounce
-import com.example.ui.theme.ShieldSuccessGreen
+import com.example.ui.components.ExpressiveAvatar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun OnboardingScreen(
-    viewModel: OnboardingViewModel,
-    onRegistered: () -> Unit
-) {
+fun OnboardingScreen(viewModel: OnboardingViewModel, onRegistered: () -> Unit) {
     val state by viewModel.uiState.collectAsState()
-    val focusManager = LocalFocusManager?.current
+    val focusManager = LocalFocusManager.current
 
     LaunchedEffect(state.isRegistered) {
-        if (state.isRegistered) {
-            onRegistered()
-        }
+        if (state.isRegistered) onRegistered()
     }
 
-    val photoPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        viewModel.onAvatarSelected(uri)
-    }
+    val photoPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { viewModel.onAvatarSelected(it) }
 
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = MaterialTheme.colorScheme.surface,
         topBar = {
-            CenterAlignedTopAppBar(
+            TopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "ShieldChat",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        AssistChip(
-                            onClick = { },
-                            label = { Text("E2EE") },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.Lock,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                            },
-                            colors = AssistChipDefaults.assistChipColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                labelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                leadingIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        )
+                    Column {
+                        Text("CIPHER", style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary)
+                        Text("Create your profile", style = MaterialTheme.typography.titleLarge)
                     }
                 },
                 actions = {
-                    AssistChip(
-                        onClick = { viewModel.showSupabaseDialog(true) },
-                        label = {
-                            Text(if (state.isSupabaseConfigured) "Connected" else "Cloud Setup")
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = if (state.isSupabaseConfigured) Icons.Default.CloudDone else Icons.Default.CloudOff,
-                                contentDescription = null,
-                                tint = if (state.isSupabaseConfigured) ShieldSuccessGreen else MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        },
-                        colors = AssistChipDefaults.assistChipColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                        ),
-                        modifier = Modifier
-                            .padding(end = 12.dp)
-                            .testTag("onboarding_settings_button")
-                    )
+                    IconButton(onClick = { viewModel.showSupabaseDialog(true) },
+                        modifier = Modifier.testTag("open_supabase_config_button")) {
+                        Icon(Icons.Default.Security, contentDescription = "Cloud settings")
+                    }
                 },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         }
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .imePadding()
-                .verticalScroll(rememberScrollState())
-                .padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            // Header ElevatedCard
-            ElevatedCard(
-                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
-                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                modifier = Modifier.fillMaxWidth()
+    ) { insets ->
+        Box(Modifier.fillMaxSize().padding(insets), contentAlignment = Alignment.TopCenter) {
+            Column(
+                modifier = Modifier.widthIn(max = 560.dp).fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                Surface(
+                    shape = MaterialTheme.shapes.extraLarge,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                 ) {
-                    FilledTonalIconButton(
-                        onClick = { },
-                        modifier = Modifier.size(64.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Security,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(36.dp)
-                        )
+                    Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
+                            Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Icon(Icons.Default.Lock, null, Modifier.size(16.dp))
+                                Text("END-TO-END ENCRYPTED", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                        Text("Your space.\nYour people.", style = MaterialTheme.typography.displaySmall,
+                            fontWeight = FontWeight.Bold)
+                        Text("Set up a name and a unique tag so friends can find you securely.",
+                            style = MaterialTheme.typography.bodyLarge)
                     }
-
-                    Text(
-                        text = "Encrypted Identity Setup",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center
-                    )
-
-                    Text(
-                        text = "Your private encryption keys are generated locally and stored exclusively inside Android KeyStore hardware isolation.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center
-                    )
-
-                    SuggestionChip(
-                        onClick = { },
-                        label = { Text("Signal Protocol • Double Ratchet + X3DH") },
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Default.Lock,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp)
-                            )
-                        },
-                        colors = SuggestionChipDefaults.suggestionChipColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                        )
-                    )
                 }
-            }
 
-            // Avatar Selector with M3 FilledIconButton
-            Box(
-                modifier = Modifier
-                    .size(104.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                    .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
-                    .tactileBounce()
-                    .clickable {
-                        photoPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
+                Card(
+                    onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                    shape = MaterialTheme.shapes.extraLarge,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                    modifier = Modifier.fillMaxWidth().testTag("avatar_selector")
+                ) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Box(Modifier.size(72.dp), contentAlignment = Alignment.Center) {
+                            if (state.avatarUri != null) {
+                                AsyncImage(model = state.avatarUri, contentDescription = "Selected profile photo",
+                                    contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize().clip(CircleShape))
+                            } else ExpressiveAvatar(name = state.displayName.ifBlank { "You" }, size = 72.dp)
+                        }
+                        Column(Modifier.weight(1f)) {
+                            Text("Add a profile photo", style = MaterialTheme.typography.titleMedium)
+                            Text("Help friends recognize you", style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Icon(Icons.Default.AddAPhoto, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     }
-                    .testTag("onboarding_avatar_picker"),
-                contentAlignment = Alignment.Center
-            ) {
-                if (state.avatarUri != null) {
-                    AsyncImage(
-                        model = state.avatarUri,
-                        contentDescription = "Selected Avatar",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.matchParentSize().clip(CircleShape)
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.AccountCircle,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.outline,
-                        modifier = Modifier.size(72.dp)
-                    )
                 }
-                FilledTonalIconButton(
-                    onClick = {
-                        photoPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
+
+                OutlinedTextField(
+                    value = state.displayName,
+                    onValueChange = viewModel::onDisplayNameChanged,
+                    label = { Text("Display name") },
+                    supportingText = { Text("This is how you appear in conversations") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    modifier = Modifier.fillMaxWidth().testTag("display_name_input")
+                )
+                OutlinedTextField(
+                    value = state.tag,
+                    onValueChange = viewModel::onTagChanged,
+                    label = { Text("Your unique tag") },
+                    prefix = { Text("@", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) },
+                    supportingText = {
+                        Text(state.tagMessage ?: "At least 3 characters · lowercase letters and numbers")
                     },
-                    modifier = Modifier
-                        .size(36.dp)
-                        .align(Alignment.BottomEnd)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PhotoCamera,
-                        contentDescription = "Pick Photo",
-                        modifier = Modifier.size(18.dp)
-                    )
+                    isError = state.isTagAvailable == false,
+                    trailingIcon = {
+                        if (state.isCheckingTag) ExpressiveContainedLoadingIndicator(Modifier.size(24.dp), size = 16.dp)
+                    },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+                    modifier = Modifier.fillMaxWidth().testTag("tag_input")
+                )
+
+                state.errorMessage?.let { message ->
+                    Text(message, color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("onboarding_error"))
                 }
-            }
 
-            // Input Fields in OutlinedCard
-            OutlinedCard(
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                Button(
+                    onClick = { focusManager.clearFocus(); viewModel.register() },
+                    enabled = !state.isLoading,
+                    modifier = Modifier.fillMaxWidth().height(56.dp).testTag("register_button")
                 ) {
-                    Text(
-                        text = "Profile Information",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    OutlinedTextField(
-                        value = state.displayName,
-                        onValueChange = { viewModel.onDisplayNameChanged(it) },
-                        label = { Text("Display Name") },
-                        placeholder = { Text("Alice Smith") },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.AccountCircle,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("onboarding_name_input")
-                    )
-
-                    OutlinedTextField(
-                        value = state.tag,
-                        onValueChange = { viewModel.onTagChanged(it) },
-                        label = { Text("Unique Tag") },
-                        placeholder = { Text("alice") },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.AlternateEmail,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        },
-                        trailingIcon = {
-                            when {
-                                state.isCheckingTag -> {
-                                    ExpressiveContainedLoadingIndicator(
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-                                state.isTagAvailable == true -> {
-                                    Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = "Available",
-                                        tint = ShieldSuccessGreen
-                                    )
-                                }
-                                state.isTagAvailable == false -> {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Unavailable",
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
-                                }
-                            }
-                        },
-                        supportingText = {
-                            state.tagMessage?.let { msg ->
-                                Text(
-                                    text = msg,
-                                    color = if (state.isTagAvailable == true) ShieldSuccessGreen else MaterialTheme.colorScheme.error
-                                )
-                            }
-                        },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(onDone = { focusManager?.clearFocus() }),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("onboarding_tag_input")
-                    )
-                }
-            }
-
-            // Cloud Status Notice in OutlinedCard
-            if (!state.isSupabaseConfigured) {
-                OutlinedCard(
-                    onClick = { viewModel.showSupabaseDialog(true) },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        FilledTonalIconButton(onClick = { viewModel.showSupabaseDialog(true) }) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.secondary
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Setup Cloud Relay",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Connect Supabase Project URL & Anon Key for real-time messaging.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                    if (state.isLoading) ExpressiveContainedLoadingIndicator(Modifier.size(26.dp), size = 18.dp)
+                    else {
+                        Icon(Icons.Default.Lock, null)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Create secure profile", style = MaterialTheme.typography.titleMedium)
                     }
                 }
-            }
 
-            // Error notice
-            state.errorMessage?.let { errorMsg ->
-                ElevatedCard(
-                    colors = CardDefaults.elevatedCardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer
-                    ),
+                Surface(
+                    shape = MaterialTheme.shapes.large,
+                    color = MaterialTheme.colorScheme.surfaceContainer,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(
-                        text = errorMsg,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(14.dp),
-                        textAlign = TextAlign.Center
-                    )
-                }
-            }
-
-            // Primary M3 Button
-            Button(
-                onClick = { viewModel.register() },
-                enabled = !state.isLoading && state.displayName.isNotBlank() && state.tag.length >= 3 && state.isTagAvailable != false,
-                elevation = ButtonDefaults.buttonElevation(defaultElevation = 3.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(54.dp)
-                    .tactileBounce()
-                    .testTag("onboarding_submit_button")
-            ) {
-                if (state.isLoading) {
-                    ExpressiveContainedLoadingIndicator(
-                        text = "Creating Identity...",
-                        modifier = Modifier.padding(horizontal = 8.dp)
-                    )
-                } else {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Security,
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Icon(if (state.isSupabaseConfigured) Icons.Default.CloudDone else Icons.Default.CloudOff,
                             contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Create Encrypted Identity",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
+                            tint = if (state.isSupabaseConfigured) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                        Column(Modifier.weight(1f)) {
+                            Text(if (state.isSupabaseConfigured) "Cloud relay connected" else "Cloud relay not configured",
+                                style = MaterialTheme.typography.titleSmall)
+                            Text("You can configure sync and friend discovery here.",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        TextButton(onClick = { viewModel.showSupabaseDialog(true) }) { Text("Setup") }
                     }
                 }
+                Spacer(Modifier.height(12.dp))
             }
-
-            Spacer(modifier = Modifier.height(20.dp))
         }
     }
 
@@ -454,14 +221,11 @@ fun OnboardingScreen(
             currentUrl = state.supabaseUrlInput,
             currentKey = state.supabaseKeyInput,
             onDismiss = { viewModel.showSupabaseDialog(false) },
-            onSave = { url, key -> viewModel.saveSupabaseConfig(url, key) }
+            onSave = viewModel::saveSupabaseConfig
         )
     }
 }
 
-/**
- * Official Material 3 AlertDialog for Supabase Configuration.
- */
 @Composable
 fun M3SupabaseAlertDialog(
     currentUrl: String,
@@ -469,65 +233,27 @@ fun M3SupabaseAlertDialog(
     onDismiss: () -> Unit,
     onSave: (url: String, key: String) -> Unit
 ) {
-    var url by remember { mutableStateOf(currentUrl) }
-    var key by remember { mutableStateOf(currentKey) }
-
+    var url by remember(currentUrl) { mutableStateOf(currentUrl) }
+    var key by remember(currentKey) { mutableStateOf(currentKey) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        icon = {
-            Icon(
-                imageVector = Icons.Default.Settings,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(28.dp)
-            )
-        },
-        title = {
-            Text(
-                text = "Supabase Cloud Relay",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
-        },
+        icon = { Icon(Icons.Default.Security, contentDescription = null) },
+        title = { Text("Cloud relay") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text(
-                    text = "Configure your Supabase Project URL and Anon Public Key. Both devices connect to exchange public prekeys and relay encrypted messages.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                OutlinedTextField(
-                    value = url,
-                    onValueChange = { url = it.trim() },
-                    label = { Text("Project URL") },
-                    placeholder = { Text("https://xxx.supabase.co") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().testTag("supabase_url_input")
-                )
-
-                OutlinedTextField(
-                    value = key,
-                    onValueChange = { key = it.trim() },
-                    label = { Text("Anon Public Key") },
-                    placeholder = { Text("eyJhbGciOi...") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().testTag("supabase_key_input")
-                )
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Connect Supabase to exchange friend requests and sync encrypted messages.",
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("Project URL") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth().testTag("supabase_url_input"))
+                OutlinedTextField(value = key, onValueChange = { key = it }, label = { Text("Anon key") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth().testTag("supabase_key_input"))
             }
         },
         confirmButton = {
-            Button(
-                onClick = { onSave(url, key) },
-                modifier = Modifier.testTag("save_supabase_button")
-            ) {
-                Text("Save & Connect")
+            Button(onClick = { onSave(url.trim(), key.trim()) }, modifier = Modifier.testTag("save_supabase_config_button")) {
+                Text("Save")
             }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }

@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [
@@ -16,7 +18,7 @@ import androidx.room.RoomDatabase
         SignalSignedPreKeyEntity::class,
         SignalSenderKeyEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -27,6 +29,11 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun signalStoreDao(): SignalStoreDao
 
     companion object {
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE messages ADD COLUMN textEmphasisJson TEXT NOT NULL DEFAULT '[]'")
+            }
+        }
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -37,7 +44,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "shieldchat.db"
                 )
-                    .fallbackToDestructiveMigration()
+                    .addMigrations(MIGRATION_1_2)
                     .build()
                 INSTANCE = instance
                 instance

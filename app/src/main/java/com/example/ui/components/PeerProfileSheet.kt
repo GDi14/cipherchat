@@ -7,7 +7,6 @@ import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -27,6 +26,7 @@ fun PeerProfileSheet(
     peerDisplayName: String,
     isOnline: Boolean,
     fingerprint: String,
+    onResetSession: (() -> Unit)? = null,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -69,7 +69,7 @@ fun PeerProfileSheet(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = MaterialTheme.shapes.small,
                     color = if (isOnline) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
                 ) {
                     Row(
@@ -95,7 +95,7 @@ fun PeerProfileSheet(
             // User Details Card
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-                shape = RoundedCornerShape(20.dp),
+                shape = MaterialTheme.shapes.large,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -129,7 +129,7 @@ fun PeerProfileSheet(
             // Safety Fingerprint
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
-                shape = RoundedCornerShape(20.dp),
+                shape = MaterialTheme.shapes.large,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -147,6 +147,18 @@ fun PeerProfileSheet(
                         fontFamily = FontFamily.Monospace,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
+
+            if (onResetSession != null) {
+                OutlinedButton(
+                    onClick = onResetSession,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Reset Secure Session")
                 }
             }
 
