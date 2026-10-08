@@ -1,57 +1,41 @@
 {
   "project_info": {
-    "project_number": "18540380887",
-    "project_id": "com-aistudio-cryptochat-e2582",
-    "storage_bucket": "com-aistudio-cryptochat-e2582.firebasestorage.app"
+    "project_number": "879999352362",
+    "project_id": "cipherchat-510913",
+    "storage_bucket": "cipherchat-510913.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:18540380887:android:ea27cd8684dd9208832692",
+        "mobilesdk_app_id": "1:879999352362:android:52b7ed948b1a82475a0d53",
         "android_client_info": {
-          "package_name": "com.aistudio.cryptochat.kxzvq"
+          "package_name": "com.gd.cipherchat"
         }
       },
       "oauth_client": [
         {
-          "client_id": "18540380887-enn8qrb61hi6sjp1jqhmp3pstrht0jf4.apps.googleusercontent.com",
+          "client_id": "879999352362-l293vvh1ghmqf132jlaqkvpd1o3msuvm.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
-            "package_name": "com.aistudio.cryptochat.kxzvq",
-            "certificate_hash": "7c6c279db39453d3bce956e5deaff4fc3a153c05"
+            "package_name": "com.gd.cipherchat",
+            "certificate_hash": "3754b32b87ec70293795f625eb3ec6e573e6f13e"
           }
         },
         {
-          "client_id": "18540380887-erbkokljh2sdic9fekn0e3hodgja4bcl.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.aistudio.cryptochat.kxzvq",
-            "certificate_hash": "30af67d011da8dbc4d3628375da5f171c2bcba94"
-          }
-        },
-        {
-          "client_id": "18540380887-mtv5idbamu6uk57ooiec4p0vl5e54v3s.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.aistudio.cryptochat.kxzvq",
-            "certificate_hash": "db72cb817f4c789227391f403485464e592951b4"
-          }
-        },
-        {
-          "client_id": "18540380887-a3th62vs2t3l5mmuj59gcu5fef1o2d73.apps.googleusercontent.com",
+          "client_id": "879999352362-a1emsigff529jijgd1p6kam6okfn5n54.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "AIzaSyC8FGKr6s0rfjR-mdyt2l_ITATyby9DT2A"
+          "current_key": "AIzaSyDz9JJy-o31MmjH-RL4Y9szKpF2ZKz31Qc"
         }
       ],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "18540380887-a3th62vs2t3l5mmuj59gcu5fef1o2d73.apps.googleusercontent.com",
+              "client_id": "879999352362-a1emsigff529jijgd1p6kam6okfn5n54.apps.googleusercontent.com",
               "client_type": 3
             }
           ]

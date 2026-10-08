@@ -8,15 +8,19 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -62,6 +66,7 @@ import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Badge
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -85,6 +90,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -109,15 +115,19 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.ui.theme.ExpressiveMotion
+import com.example.ui.theme.BrandBlack
+import com.example.ui.theme.KleinBlue
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -153,6 +163,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
@@ -173,9 +185,9 @@ private data class SendFlight(
     val bubbleHeight: Float = start.height
 )
 
-private val IMessageOutgoing = Color(0xFF28C760)
-private val IMessageIncoming = Color(0xFF29272D)
-private val IMessageComposer = Color(0xFF242226)
+private val IMessageOutgoing = KleinBlue
+private val IMessageIncoming = Color(0xFF292124)
+private val IMessageComposer = Color(0xFF292124)
 
 private fun Rect.relativeTo(origin: Offset) = Rect(
     left = left - origin.x,
@@ -184,11 +196,12 @@ private fun Rect.relativeTo(origin: Offset) = Rect(
     bottom = bottom - origin.y
 )
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(
     viewModel: ChatViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenProfile: (String) -> Unit = {}
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(viewModel, lifecycleOwner) {
@@ -207,6 +220,7 @@ fun ChatScreen(
     }
 
     val context = LocalContext.current
+    val density = androidx.compose.ui.platform.LocalDensity.current
     val uiState by viewModel.uiState.collectAsState()
     val messagesState = viewModel.messages.collectAsState()
     val messages by messagesState
@@ -221,8 +235,10 @@ fun ChatScreen(
     var composerBounds by remember { mutableStateOf<Rect?>(null) }
     var sendFlight by remember { mutableStateOf<SendFlight?>(null) }
     var overlayOrigin by remember { mutableStateOf(Offset.Zero) }
+    var composerHeightPx by remember { mutableStateOf(with(density) { 88.dp.roundToPx() }) }
+    var initialMessagePositioned by remember(viewModel.conversationId) { mutableStateOf(false) }
+    var previousMessageCount by remember(viewModel.conversationId) { mutableStateOf(0) }
     val sendFlightProgress = remember { Animatable(0f) }
-    val density = androidx.compose.ui.platform.LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
     val messageTextStyle = MaterialTheme.typography.bodyLarge
     val hapticFeedback = LocalHapticFeedback.current
@@ -236,18 +252,48 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(messages.size, uiState.sendingMediaUri, isSomeoneTyping) {
-        val transientItemCount =
-            (if (uiState.sendingMediaUri != null) 1 else 0) + (if (isSomeoneTyping) 1 else 0)
-        if (sendFlight == null && (messages.isNotEmpty() || transientItemCount > 0)) {
-            listState.animateScrollToItem((messages.size + transientItemCount - 1).coerceAtLeast(0))
+    LaunchedEffect(messages.size, uiState.sendingMediaUri) {
+        if (sendFlight != null) return@LaunchedEffect
+
+        if (!initialMessagePositioned) {
+            if (messages.isNotEmpty()) {
+                // Jump directly to the newest message on first open. Animating
+                // from the oldest item makes long conversations visibly stutter.
+                listState.scrollToItem(messages.lastIndex)
+                initialMessagePositioned = true
+                previousMessageCount = messages.size
+            }
+            return@LaunchedEffect
         }
+
+        val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index
+        val wasFollowingLatest = previousMessageCount == 0 ||
+            (lastVisibleIndex != null && lastVisibleIndex >= previousMessageCount - 2)
+        val newMessagesArrived = messages.size > previousMessageCount
+        if (wasFollowingLatest && (newMessagesArrived || uiState.sendingMediaUri != null)) {
+            // Wait for the new row and composer height to settle before following.
+            // Use the real last item so transient rows cannot invalidate the target.
+            withFrameNanos { }
+            val targetIndex = listState.layoutInfo.totalItemsCount - 1
+            if (targetIndex >= 0) listState.scrollToItem(targetIndex)
+        }
+        previousMessageCount = messages.size
     }
 
     LaunchedEffect(isImeVisible) {
         if (isImeVisible && messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+            withFrameNanos { }
+            val targetIndex = listState.layoutInfo.totalItemsCount - 1
+            if (targetIndex >= 0) listState.scrollToItem(targetIndex)
         }
+    }
+
+    LaunchedEffect(listState, messagesState) {
+        snapshotFlow { listState.firstVisibleItemIndex to messagesState.value.size }
+            .distinctUntilChanged()
+            .collect { (firstVisibleIndex, _) ->
+                if (firstVisibleIndex <= 5) viewModel.loadOlderMessages()
+            }
     }
 
     // Media Pickers
@@ -269,7 +315,7 @@ fun ChatScreen(
     }
 
     Scaffold(
-        containerColor = Color.Black,
+        containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets.statusBars,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -288,10 +334,13 @@ fun ChatScreen(
                 title = {
                     val title = uiState.conversation?.title ?: "Encrypted Chat"
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clickable { showSafetySheet = true }
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        ExpressiveAvatar(name = title, size = 44.dp)
+                        val directUserId = uiState.conversation?.takeIf { it.type == "direct" }?.otherUserId
+                        ExpressiveAvatar(name = title, size = 44.dp,
+                            modifier = Modifier.clickable(enabled = directUserId != null) {
+                                directUserId?.let(onOpenProfile)
+                            })
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -300,7 +349,10 @@ fun ChatScreen(
                                     style = MaterialTheme.typography.titleLarge,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.clickable(enabled = directUserId != null) {
+                                        directUserId?.let(onOpenProfile)
+                                    }
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Icon(
@@ -311,7 +363,7 @@ fun ChatScreen(
                                 )
                             }
                             Text(
-                                text = "Encrypted · tap for safety numbers",
+                                text = "Encrypted · safety numbers",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.outline
                             )
@@ -359,12 +411,13 @@ fun ChatScreen(
                     start = 12.dp,
                     end = 12.dp,
                     top = 8.dp,
-                    bottom = 88.dp
+                    bottom = 8.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier
                     .widthIn(max = 960.dp)
                     .fillMaxSize()
+                    .padding(bottom = with(density) { composerHeightPx.toDp() })
                     .align(Alignment.Center)
             ) {
                 items(messages, key = { it.id }) { message ->
@@ -372,9 +425,10 @@ fun ChatScreen(
                         message.id == flight.messageId
                     } == true
                     M3MessageItem(
-                        modifier = Modifier.animateItem(
-                            placementSpec = spring(dampingRatio = 0.74f, stiffness = 420f)
-                        ),
+                        // Keep already-visible rows stationary when the database emits
+                        // a received message; animating every row caused a refresh-like
+                        // shift and amplified work in long conversations.
+                        modifier = Modifier,
                         message = message,
                         animateEmphasis = message.id in emphasisAnimationMessageIds,
                         voiceOfUserEnabled = voiceOfUserEnabled,
@@ -387,15 +441,15 @@ fun ChatScreen(
                             "Friend"
                         },
                         onReply = { viewModel.setReplyingTo(message) },
+                        onDelete = { viewModel.hideMessage(message) },
                         onPlayAudio = { viewModel.playAudio(message) },
                         isPlayingAudio = uiState.playingAudioMessageId == message.id,
                         audioProgress = if (uiState.playingAudioMessageId == message.id) uiState.audioProgress else 0f,
                         onViewMedia = { viewModel.openMediaViewer(message) },
                         hideOutgoingBubble = isInSendFlight,
-                        suppressEntranceAnimation = isInSendFlight,
                         onBounds = { bounds ->
-                                            val flight = sendFlight
-                                            if (flight != null && message.id == flight.messageId
+                            val flight = sendFlight
+                            if (flight != null && message.id == flight.messageId
                             ) {
                                 val target = bounds.relativeTo(overlayOrigin)
                                 val desiredBottom = flight.start.top - with(density) { 8.dp.toPx() }
@@ -408,12 +462,21 @@ fun ChatScreen(
                         }
                     )
                 }
-                if (isSomeoneTyping) {
-                    item(key = "typing_indicator") {
-                        TypingIndicatorBubble(
-                            name = uiState.conversation?.title ?: "Chat",
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                item(key = "typing_indicator") {
+                    AnimatedVisibility(
+                        visible = isSomeoneTyping,
+                        enter = fadeIn(animationSpec = tween(180, easing = FastOutSlowInEasing)) +
+                            expandVertically(
+                                expandFrom = Alignment.Top,
+                                animationSpec = tween(180, easing = FastOutSlowInEasing)
+                            ),
+                        exit = fadeOut(animationSpec = tween(160, easing = FastOutSlowInEasing)) +
+                            shrinkVertically(
+                                shrinkTowards = Alignment.Top,
+                                animationSpec = tween(160, easing = FastOutSlowInEasing)
+                            )
+                    ) {
+                        TypingIndicatorBubble(modifier = Modifier.fillMaxWidth())
                     }
                 }
                 uiState.sendingMediaUri?.let { uri ->
@@ -441,6 +504,7 @@ fun ChatScreen(
                     .align(Alignment.BottomCenter)
                     .widthIn(max = 960.dp)
                     .fillMaxWidth()
+                    .onSizeChanged { composerHeightPx = it.height }
                     .then(
                         if (!isImeVisible) Modifier.windowInsetsPadding(WindowInsets.navigationBars)
                         else Modifier
@@ -542,8 +606,8 @@ fun ChatScreen(
                                         )
                                     },
                                     colors = IconButtonDefaults.iconButtonColors(
-                                        containerColor = IMessageComposer.copy(alpha = 0.86f),
-                                        contentColor = Color.White.copy(alpha = 0.88f)
+                                        containerColor = MaterialTheme.colorScheme.primary,
+                                        contentColor = MaterialTheme.colorScheme.onPrimary
                                     ),
                                     modifier = Modifier
                                         .clip(CircleShape)
@@ -557,6 +621,7 @@ fun ChatScreen(
                                         .weight(1f)
                                         .clip(PillShape)
                                         .background(IMessageComposer.copy(alpha = 0.80f))
+                                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, PillShape)
                                         .onGloballyPositioned {
                                             composerBounds = it.boundsInRoot().relativeTo(overlayOrigin)
                                         }
@@ -588,8 +653,8 @@ fun ChatScreen(
                                         onClick = {
                                             if (uiState.inputText.isNotBlank()) {
                                                 val startMessageCount = messages.size
-                                                val provisionalMessage = viewModel.sendTextMessage()
-                                                if (provisionalMessage != null) composerBounds?.let { inputBounds ->
+                                                viewModel.sendTextMessage { provisionalMessage ->
+                                                    composerBounds?.let { inputBounds ->
                                                     val text = provisionalMessage.plaintextBody
                                                     val minBubbleWidth = with(density) { 56.dp.toPx() }
                                                     val maxBubbleWidth = with(density) { 310.dp.toPx() }
@@ -615,7 +680,9 @@ fun ChatScreen(
 
                                                     val layoutInfo = listState.layoutInfo
                                                     val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()
-                                                    val bottomPaddingPx = with(density) { 88.dp.toPx() }
+                                                    // The list viewport now ends at the measured composer edge;
+                                                    // only its own 8dp content inset remains below the final row.
+                                                    val bottomPaddingPx = with(density) { 8.dp.toPx() }
                                                     val itemSpacingPx = with(density) { 8.dp.toPx() }
                                                     val distanceToExistingBottom = if (lastVisible == null) {
                                                         0f
@@ -643,6 +710,7 @@ fun ChatScreen(
                                                         textWidth = textLayout.size.width.toFloat(),
                                                         bubbleHeight = estimatedHeight
                                                     )
+                                                    }
                                                 }
                                             } else {
                                                 val hasPerm = ContextCompat.checkSelfPermission(
@@ -658,8 +726,8 @@ fun ChatScreen(
                                         },
                                         enabled = !uiState.isSending,
                                         colors = IconButtonDefaults.iconButtonColors(
-                                            containerColor = if (uiState.inputText.isNotBlank()) IMessageOutgoing else Color.Transparent,
-                                            contentColor = if (uiState.inputText.isNotBlank()) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                            containerColor = if (uiState.inputText.isNotBlank()) IMessageOutgoing else MaterialTheme.colorScheme.outlineVariant,
+                                            contentColor = if (uiState.inputText.isNotBlank()) Color.White else BrandBlack
                                         ),
                                         modifier = Modifier
                                             .align(Alignment.CenterEnd)
@@ -687,42 +755,15 @@ fun ChatScreen(
         LaunchedEffect(flight?.startedAt) {
             val startedAt = flight?.startedAt ?: return@LaunchedEffect
             sendFlightProgress.snapTo(0f)
-            // The provisional message is already in the UI flow. Wait only for
-            // its Compose row to enter layout so the scroll has real range.
-            val messageInserted = withTimeoutOrNull(800L) {
-                snapshotFlow { messagesState.value.size }
-                    .first { it > flight.startMessageCount }
-                true
-            } == true
-            if (messageInserted) withFrameNanos { }
-            val activeFlight = sendFlight?.takeIf { it.startedAt == startedAt } ?: flight
-            val layoutInfo = listState.layoutInfo
-            val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()
-            val itemSpacingPx = with(density) { 8.dp.toPx() }
-            val bottomPaddingPx = with(density) { 88.dp.toPx() }
-            val desiredBottom = activeFlight.start.top - with(density) { 8.dp.toPx() }
-            val scrollDistance = when {
-                !messageInserted -> 0f
-                activeFlight.endMeasured -> (activeFlight.end?.bottom ?: desiredBottom) - desiredBottom
-                lastVisible != null -> {
-                    val averageExtent = layoutInfo.visibleItemsInfo
-                        .map { it.size + itemSpacingPx }
-                        .average().toFloat()
-                    val unseenRows = (layoutInfo.totalItemsCount - lastVisible.index - 2)
-                        .coerceAtLeast(0)
-                    val visibleGap = layoutInfo.viewportEndOffset -
-                        (lastVisible.offset + lastVisible.size)
-                    unseenRows * averageExtent + activeFlight.bubbleHeight + itemSpacingPx +
-                        bottomPaddingPx - visibleGap
-                }
-                else -> activeFlight.scrollDistance
-            }.coerceAtLeast(0f)
+            // The provisional row's estimated scroll distance was captured at
+            // tap time, so the bubble and list can start moving on this frame.
+            val scrollDistance = flight.scrollDistance.coerceAtLeast(0f)
             // A single eased progress drives both the bubble and the list so they
             // decelerate together into the final resting position.
             val flightMotion = tween<Float>(durationMillis = 420, easing = FastOutSlowInEasing)
             coroutineScope {
                 val scrollMotion = launch {
-                    if (messageInserted && scrollDistance > 1f) {
+                    if (scrollDistance > 1f) {
                         var appliedScroll = 0f
                         snapshotFlow { sendFlightProgress.value.coerceIn(0f, 1f) }
                             .onEach { progress ->
@@ -750,10 +791,21 @@ fun ChatScreen(
                 bubbleMotion.join()
                 scrollMotion.join()
             }
+            // Wait for the real row to finish layout only after the visible
+            // send motion, before swapping the overlay proxy for that row.
+            val messageInserted = withTimeoutOrNull(800L) {
+                snapshotFlow { messagesState.value.size }
+                    .first { it > flight.startMessageCount }
+                true
+            } == true
+            if (messageInserted) withFrameNanos { }
             // Allow the list's final layout to settle before swapping the proxy
             // for the real message bubble.
             withFrameNanos { }
             hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+            // Keep the idle progress at the source. Otherwise the next flight's
+            // first composed frame can draw its proxy at the previous endpoint.
+            sendFlightProgress.snapTo(0f)
             sendFlight = null
         }
         if (flight != null) {
@@ -843,6 +895,7 @@ fun ChatScreen(
 // ==============================================================================
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 fun M3MessageItem(
     modifier: Modifier = Modifier,
     message: MessageEntity,
@@ -853,43 +906,44 @@ fun M3MessageItem(
     showSenderBadge: Boolean = false,
     senderLabel: String? = message.senderName,
     onReply: () -> Unit,
+    onDelete: () -> Unit,
     onPlayAudio: () -> Unit,
     isPlayingAudio: Boolean,
     audioProgress: Float,
     onViewMedia: () -> Unit,
     hideOutgoingBubble: Boolean = false,
-    suppressEntranceAnimation: Boolean = false,
     onBounds: ((Rect) -> Unit)? = null
 ) {
+    var showDeleteConfirmation by remember(message.id) { mutableStateOf(false) }
+    val messageInteraction = Modifier
+        .pointerInput(message.id) {
+            var horizontalDistance = 0f
+            var replied = false
+            val replyThreshold = 88.dp.toPx()
+            detectHorizontalDragGestures(
+                onHorizontalDrag = { _, dragAmount ->
+                    horizontalDistance += dragAmount
+                    if (!replied && kotlin.math.abs(horizontalDistance) >= replyThreshold) {
+                        replied = true
+                        onReply()
+                    }
+                },
+                onDragEnd = { horizontalDistance = 0f; replied = false },
+                onDragCancel = { horizontalDistance = 0f; replied = false }
+            )
+        }
+        .combinedClickable(
+            onClick = onReply,
+            onLongClick = { showDeleteConfirmation = true }
+        )
     val timeFormatted = remember(message.timestamp) {
         SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.timestamp))
-    }
-
-    val motionEnabled = LocalExpressiveMotionEnabled.current
-    val scale = remember { Animatable(1f) }
-    LaunchedEffect(message.id, motionEnabled) {
-        if (motionEnabled && !suppressEntranceAnimation) {
-            scale.snapTo(0.92f)
-            scale.animateTo(
-                targetValue = 1f,
-                animationSpec = spring(
-                    dampingRatio = 0.65f,
-                    stiffness = Spring.StiffnessMedium
-                )
-            )
-        } else {
-            scale.snapTo(1f)
-        }
     }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .graphicsLayer(
-                scaleX = scale.value,
-                scaleY = scale.value,
-                transformOrigin = TransformOrigin(if (isOutgoing) 1f else 0f, 1f)
-            ),
+            .graphicsLayer { alpha = if (hideOutgoingBubble) 0f else 1f },
         horizontalAlignment = if (isOutgoing) Alignment.End else Alignment.Start
     ) {
         if (showSenderBadge && !senderLabel.isNullOrBlank()) {
@@ -917,8 +971,7 @@ fun M3MessageItem(
                     modifier = Modifier
                         .widthIn(max = 310.dp)
                         .then(if (onBounds != null) Modifier.onGloballyPositioned { onBounds(it.boundsInRoot()) } else Modifier)
-                        .graphicsLayer { alpha = if (hideOutgoingBubble) 0f else 1f }
-                        .clickable(onClick = onReply)
+                        .then(messageInteraction)
                 ) {
                     M3MessageContent(
                         message = message,
@@ -939,13 +992,14 @@ fun M3MessageItem(
             // Incoming messages use a distinct tonal surface from sent messages.
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = IMessageIncoming.copy(alpha = 0.82f),
-                    contentColor = Color.White
+                    containerColor = IMessageIncoming,
+                    contentColor = MaterialTheme.colorScheme.onSurface
                 ),
                 shape = ExpressiveIncomingBubbleShape,
                 modifier = Modifier
                     .widthIn(max = 310.dp)
-                    .clickable(onClick = onReply)
+                    .then(messageInteraction)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, ExpressiveIncomingBubbleShape)
             ) {
                 M3MessageContent(
                     message = message,
@@ -963,17 +1017,31 @@ fun M3MessageItem(
             }
         }
     }
+    if (showDeleteConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmation = false },
+            title = { Text("Delete message from this device?") },
+            text = { Text("This hides the message for you. Other participants can still see it.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteConfirmation = false
+                    onDelete()
+                }) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmation = false }) { Text("Cancel") }
+            }
+        )
+    }
 }
 
 @Composable
-private fun TypingIndicatorBubble(name: String, modifier: Modifier = Modifier) {
+private fun TypingIndicatorBubble(modifier: Modifier = Modifier) {
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        ExpressiveAvatar(name = name, size = 30.dp)
         Surface(
-            modifier = Modifier.padding(start = 8.dp),
             shape = PillShape,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             contentColor = MaterialTheme.colorScheme.onSurface
@@ -1140,7 +1208,7 @@ private fun M3MessageContent(
             Text(
                 text = timeFormatted,
                 style = MaterialTheme.typography.labelSmall,
-                color = if (isOutgoing) Color.White.copy(alpha = 0.78f) else Color.White.copy(alpha = 0.72f)
+                color = if (isOutgoing) Color.White.copy(alpha = 0.78f) else MaterialTheme.colorScheme.onSurfaceVariant
             )
             if (isOutgoing) {
                 Spacer(modifier = Modifier.width(4.dp))

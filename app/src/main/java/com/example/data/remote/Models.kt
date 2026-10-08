@@ -14,6 +14,7 @@ data class ProfileDto(
     @Json(name = "display_name") @SerialName("display_name") val displayName: String,
     @Json(name = "tag") val tag: String,
     @Json(name = "avatar_path") @SerialName("avatar_path") val avatarPath: String? = null,
+    @Json(name = "auth_user_id") @SerialName("auth_user_id") val authUserId: String? = null,
     @Json(name = "created_at") @SerialName("created_at") val createdAt: String? = null,
     @Json(name = "updated_at") @SerialName("updated_at") val updatedAt: String? = null
 )
@@ -48,6 +49,7 @@ data class ConversationDto(
     @Json(name = "id") val id: String? = null,
     @Json(name = "type") val type: String, // "direct" or "group"
     @Json(name = "title") val title: String? = null,
+    @Json(name = "created_by") @SerialName("created_by") val createdBy: String? = null,
     @Json(name = "created_at") @SerialName("created_at") val createdAt: String? = null,
     @Json(name = "updated_at") @SerialName("updated_at") val updatedAt: String? = null
 )
@@ -101,4 +103,12 @@ data class TypingStatusDto(
     @Json(name = "user_id") @SerialName("user_id") val userId: String,
     @Json(name = "is_typing") @SerialName("is_typing") val isTyping: Boolean = false,
     @Json(name = "updated_at") @SerialName("updated_at") val updatedAt: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+@Serializable
+data class DeviceTokenDto(
+    @Json(name = "device_id") @SerialName("device_id") val deviceId: String,
+    @Json(name = "user_id") @SerialName("user_id") val userId: String,
+    @Json(name = "fcm_token") @SerialName("fcm_token") val fcmToken: String
 )

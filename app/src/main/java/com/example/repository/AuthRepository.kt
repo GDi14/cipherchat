@@ -8,15 +8,20 @@ import com.example.data.local.ProfileEntity
 import com.example.data.local.SecurePreferencesManager
 import com.example.data.remote.PrekeyDto
 import com.example.data.remote.ProfileDto
+import com.example.data.remote.PushTokenRegistrar
 import com.example.data.remote.SupabaseClientProvider
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.storage.storage
+import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.providers.Google
+import io.github.jan.supabase.auth.providers.builtin.IDToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.util.UUID
+import android.util.Log
 
 class AuthRepository(
     private val context: Context,
@@ -25,10 +30,10 @@ class AuthRepository(
     private val supabaseProvider: SupabaseClientProvider,
     private val database: AppDatabase
 ) {
-    val myUserId: String = securePrefs.getOrCreateUserId()
+    val myUserId: String get() = securePrefs.getOrCreateUserId()
     val myDeviceId: String = securePrefs.getOrCreateDeviceId()
 
-    fun isRegistered(): Boolean = securePrefs.isRegistered()
+    fun isRegistered(): Boolean = securePrefs.isRegistered() && !securePrefs.getSupabaseAuthUserId().isNullOrBlank()
     fun getDisplayName(): String = securePrefs.getDisplayName() ?: "User"
     fun getTag(): String = securePrefs.getTag() ?: ""
     fun getAvatarPath(): String? = securePrefs.getAvatarPath()
@@ -36,6 +41,58 @@ class AuthRepository(
     fun saveFavoriteFriendIds(ids: Set<String>) = securePrefs.saveFavoriteFriendIds(ids)
     fun isVoiceOfUserEnabled(): Boolean = securePrefs.isVoiceOfUserEnabled()
     fun setVoiceOfUserEnabled(enabled: Boolean) = securePrefs.setVoiceOfUserEnabled(enabled)
+
+    /** Exchange the native Google ID token for a Supabase Auth session and restore a linked profile. */
+    suspend fun signInWithGoogleIdToken(idToken: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val client = supabaseProvider.getClient()
+            client.auth.signInWith(IDToken) {
+                this.idToken = idToken
+                provider = Google
+            }
+            val authUserId = client.auth.currentUserOrNull()?.id
+                ?: error("Supabase did not return an authenticated user")
+            securePrefs.saveSupabaseAuthUserId(authUserId)
+
+            val linkedProfile = client.postgrest["profiles"].select {
+                filter { eq("auth_user_id", authUserId) }
+            }.decodeList<ProfileDto>().firstOrNull()
+
+            if (linkedProfile != null) {
+                securePrefs.setCurrentUserId(linkedProfile.id)
+                securePrefs.saveProfile(
+                    linkedProfile.displayName,
+                    linkedProfile.tag,
+                    linkedProfile.avatarPath,
+                    authUserId
+                )
+                database.profileDao().insertOrUpdate(
+                    ProfileEntity(
+                        id = linkedProfile.id,
+                        displayName = linkedProfile.displayName,
+                        tag = linkedProfile.tag,
+                        avatarPath = linkedProfile.avatarPath,
+                        isFriend = false
+                    )
+                )
+                runCatching { PushTokenRegistrar.register(context, securePrefs, supabaseProvider) }
+                Result.success(true)
+            } else {
+                if (securePrefs.isRegistered()) {
+                    securePrefs.clearSupabaseAuthUserId()
+                    return@withContext Result.failure(
+                        IllegalStateException(
+                            "This profile was created before Google sign-in. It must be linked by an administrator before it can be used with the new account security rules."
+                        )
+                    )
+                }
+                Result.success(false)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Result.failure(e)
+        }
+    }
 
     /**
      * Checks if a tag is available on Supabase.
@@ -74,25 +131,34 @@ class AuthRepository(
      */
     suspend fun registerUser(displayName: String, tag: String, avatarUri: Uri? = null): Result<Unit> = withContext(Dispatchers.IO) {
         try {
+            val authUserId = securePrefs.getSupabaseAuthUserId()
+                ?: return@withContext Result.failure(IllegalStateException("Sign in with Google before creating your profile"))
             val cleanTag = tag.trim().removePrefix("@").lowercase()
+
+            // Storage RLS resolves the active Auth identity through profiles.auth_user_id.
+            // Create that link before uploading the avatar, then update the row with its URL below.
+            if (supabaseProvider.isConfigured) {
+                val client = supabaseProvider.getClient()
+                check(client.auth.currentUserOrNull()?.id == authUserId) {
+                    "Your secure cloud session expired. Sign in again before creating your profile."
+                }
+                client.postgrest["profiles"].upsert(
+                    ProfileDto(
+                        id = myUserId,
+                        deviceId = myDeviceId,
+                        displayName = displayName.trim(),
+                        tag = cleanTag,
+                        avatarPath = null,
+                        authUserId = authUserId
+                    )
+                )
+            }
 
             // 1. Upload avatar if selected
             var avatarUrl: String? = null
-            if (avatarUri != null && supabaseProvider.isConfigured) {
-                try {
-                    val bytes = context.contentResolver.openInputStream(avatarUri)?.use { it.readBytes() }
-                    if (bytes != null) {
-                        val client = supabaseProvider.getClient()
-                        val fileName = "${myUserId}_${System.currentTimeMillis()}.jpg"
-                        val bucket = client.storage["avatars"]
-                        bucket.upload(fileName, bytes) {
-                            upsert = true
-                        }
-                        avatarUrl = bucket.publicUrl(fileName)
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+            if (avatarUri != null) {
+                check(supabaseProvider.isConfigured) { "Connect to Supabase before uploading a profile photo" }
+                avatarUrl = uploadAvatar(avatarUri)
             }
 
             // 2. Generate public prekey bundle
@@ -106,7 +172,8 @@ class AuthRepository(
                     deviceId = myDeviceId,
                     displayName = displayName.trim(),
                     tag = cleanTag,
-                    avatarPath = avatarUrl
+                    avatarPath = avatarUrl,
+                    authUserId = authUserId
                 )
                 client.postgrest["profiles"].upsert(profileDto)
 
@@ -123,6 +190,51 @@ class AuthRepository(
             }
 
             // 4. Save profile in SecurePreferences and Room
+            securePrefs.saveProfile(displayName.trim(), cleanTag, avatarUrl, authUserId)
+            database.profileDao().insertOrUpdate(
+                ProfileEntity(
+                    id = myUserId,
+                    displayName = displayName.trim(),
+                    tag = cleanTag,
+                    avatarPath = avatarUrl,
+                    isFriend = false
+                )
+            )
+            runCatching { PushTokenRegistrar.register(context, securePrefs, supabaseProvider) }
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Updates own profile details.
+     */
+    suspend fun updateProfile(displayName: String, tag: String, avatarUri: Uri? = null): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val cleanTag = tag.trim().removePrefix("@").lowercase()
+
+            var avatarUrl: String? = securePrefs.getAvatarPath()
+            if (avatarUri != null) {
+                check(supabaseProvider.isConfigured) { "Connect to Supabase before uploading a profile photo" }
+                avatarUrl = uploadAvatar(avatarUri)
+            }
+
+            if (supabaseProvider.isConfigured) {
+                val client = supabaseProvider.getClient()
+                val profileDto = ProfileDto(
+                    id = myUserId,
+                    deviceId = myDeviceId,
+                    displayName = displayName.trim(),
+                    tag = cleanTag,
+                    avatarPath = avatarUrl,
+                    authUserId = securePrefs.getSupabaseAuthUserId()
+                )
+                client.postgrest["profiles"].upsert(profileDto)
+            }
+
             securePrefs.saveProfile(displayName.trim(), cleanTag, avatarUrl)
             database.profileDao().insertOrUpdate(
                 ProfileEntity(
@@ -141,58 +253,24 @@ class AuthRepository(
         }
     }
 
-    /**
-     * Updates own profile details.
-     */
-    suspend fun updateProfile(displayName: String, tag: String, avatarUri: Uri? = null): Result<Unit> = withContext(Dispatchers.IO) {
+    private suspend fun uploadAvatar(uri: Uri): String {
+        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            ?: throw IllegalStateException("Could not read the selected profile photo")
+        require(bytes.isNotEmpty()) { "The selected profile photo is empty" }
+        val mimeType = context.contentResolver.getType(uri).orEmpty()
+        val extension = when (mimeType.lowercase()) {
+            "image/png" -> "png"
+            "image/webp" -> "webp"
+            else -> "jpg"
+        }
+        val fileName = "${myUserId}_${System.currentTimeMillis()}.$extension"
+        val bucket = supabaseProvider.getClient().storage["avatars"]
         try {
-            val cleanTag = tag.trim().removePrefix("@").lowercase()
-
-            var avatarUrl: String? = securePrefs.getAvatarPath()
-            if (avatarUri != null && supabaseProvider.isConfigured) {
-                try {
-                    val bytes = context.contentResolver.openInputStream(avatarUri)?.use { it.readBytes() }
-                    if (bytes != null) {
-                        val client = supabaseProvider.getClient()
-                        val fileName = "${myUserId}_${System.currentTimeMillis()}.jpg"
-                        val bucket = client.storage["avatars"]
-                        bucket.upload(fileName, bytes) {
-                            upsert = true
-                        }
-                        avatarUrl = bucket.publicUrl(fileName)
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-
-            if (supabaseProvider.isConfigured) {
-                val client = supabaseProvider.getClient()
-                val profileDto = ProfileDto(
-                    id = myUserId,
-                    deviceId = myDeviceId,
-                    displayName = displayName.trim(),
-                    tag = cleanTag,
-                    avatarPath = avatarUrl
-                )
-                client.postgrest["profiles"].upsert(profileDto)
-            }
-
-            securePrefs.saveProfile(displayName.trim(), cleanTag, avatarUrl)
-            database.profileDao().insertOrUpdate(
-                ProfileEntity(
-                    id = myUserId,
-                    displayName = displayName.trim(),
-                    tag = cleanTag,
-                    avatarPath = avatarUrl,
-                    isFriend = false
-                )
-            )
-
-            Result.success(Unit)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            Result.failure(e)
+            bucket.upload(fileName, bytes) { upsert = true }
+            return bucket.publicUrl(fileName)
+        } catch (error: Exception) {
+            Log.e("AuthRepository", "Avatar upload failed for profile $myUserId", error)
+            throw error
         }
     }
 
@@ -218,7 +296,8 @@ class AuthRepository(
                 deviceId = myDeviceId,
                 displayName = displayName,
                 tag = tag,
-                avatarPath = avatarUrl
+                avatarPath = avatarUrl,
+                authUserId = securePrefs.getSupabaseAuthUserId()
             )
             client.postgrest["profiles"].upsert(profileDto)
 

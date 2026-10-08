@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -41,11 +42,14 @@ import com.example.ui.M3AppSettingsPage
 import com.example.ui.M3FriendsTab
 import com.example.ui.M3NotificationsPage
 import com.example.ui.M3ProfileTab
+import com.example.ui.M3SettingsPage
 import com.example.ui.OnboardingScreen
 import com.example.ui.OnboardingViewModel
+import com.example.ui.PublicProfilePage
 
 import androidx.compose.animation.AnimatedContent
 import com.example.ui.theme.ExpressiveMotion
+import com.example.ui.theme.ExpressivePagesTheme
 import com.example.ui.theme.LocalExpressiveMotionEnabled
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.theme.rememberSystemMotionEnabled
@@ -58,8 +62,10 @@ sealed interface AppScreen {
     data object NewGroup : AppScreen { override val level: Int = 2 }
     data object AddFriends : AppScreen { override val level: Int = 2 }
     data object Notifications : AppScreen { override val level: Int = 2 }
-    data object AppSettings : AppScreen { override val level: Int = 2 }
-    data object ProfileSettings : AppScreen { override val level: Int = 2 }
+    data object Settings : AppScreen { override val level: Int = 2 }
+    data object AppSettings : AppScreen { override val level: Int = 3 }
+    data object ProfileSettings : AppScreen { override val level: Int = 3 }
+    data class UserProfile(val userId: String) : AppScreen { override val level: Int = 3 }
 }
 
 private val AppScreenSaver = Saver<AppScreen, String>(
@@ -71,8 +77,10 @@ private val AppScreenSaver = Saver<AppScreen, String>(
             AppScreen.NewGroup -> "new_group"
             AppScreen.AddFriends -> "friends"
             AppScreen.Notifications -> "notifications"
+            AppScreen.Settings -> "settings"
             AppScreen.AppSettings -> "app_settings"
             AppScreen.ProfileSettings -> "profile_settings"
+            is AppScreen.UserProfile -> "user_profile:${screen.userId}"
         }
     },
     restore = { saved ->
@@ -82,17 +90,35 @@ private val AppScreenSaver = Saver<AppScreen, String>(
             saved == "new_group" -> AppScreen.NewGroup
             saved == "friends" -> AppScreen.AddFriends
             saved == "notifications" -> AppScreen.Notifications
+            saved == "settings" -> AppScreen.Settings
             saved == "app_settings" -> AppScreen.AppSettings
             saved == "profile_settings" -> AppScreen.ProfileSettings
+            saved.startsWith("user_profile:") -> AppScreen.UserProfile(saved.removePrefix("user_profile:"))
             else -> AppScreen.Home
         }
     }
 )
 
 class MainActivity : ComponentActivity() {
+    private var notificationConversationRequest by mutableStateOf<String?>(null)
+
+    companion object {
+        const val EXTRA_NOTIFICATION_CONVERSATION_ID = "notification_conversation_id"
+    }
+
+    override fun onStart() {
+        super.onStart()
+        SecurePreferencesManager(applicationContext).setApplicationForeground(true)
+    }
+
+    override fun onStop() {
+        SecurePreferencesManager(applicationContext).setApplicationForeground(false)
+        super.onStop()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        notificationConversationRequest = intent?.getStringExtra(EXTRA_NOTIFICATION_CONVERSATION_ID)
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT)
@@ -134,14 +160,28 @@ class MainActivity : ComponentActivity() {
                     ) {
                     var currentScreen by rememberSaveable(stateSaver = AppScreenSaver) {
                         mutableStateOf<AppScreen>(
-                            if (authRepository.isRegistered()) AppScreen.Home else AppScreen.Onboarding
+                            notificationConversationRequest?.takeIf { authRepository.isRegistered() }
+                                ?.let { AppScreen.Chat(it) }
+                                ?: if (authRepository.isRegistered()) AppScreen.Home else AppScreen.Onboarding
                         )
+                    }
+                    LaunchedEffect(notificationConversationRequest) {
+                        val conversationId = notificationConversationRequest ?: return@LaunchedEffect
+                        if (authRepository.isRegistered()) currentScreen = AppScreen.Chat(conversationId)
+                        notificationConversationRequest = null
+                    }
+                    var profileReturnScreen by rememberSaveable(stateSaver = AppScreenSaver) {
+                        mutableStateOf<AppScreen>(AppScreen.Home)
                     }
 
                     BackHandler(
                         enabled = currentScreen != AppScreen.Home && currentScreen != AppScreen.Onboarding
                     ) {
-                        currentScreen = AppScreen.Home
+                        currentScreen = when (currentScreen) {
+                            AppScreen.AppSettings, AppScreen.ProfileSettings -> AppScreen.Settings
+                            is AppScreen.UserProfile -> profileReturnScreen
+                            else -> AppScreen.Home
+                        }
                     }
 
                     AnimatedContent(
@@ -157,6 +197,7 @@ class MainActivity : ComponentActivity() {
                         },
                         label = "expressive_screen_transition"
                     ) { screen ->
+                        val renderScreen: @Composable () -> Unit = {
                         when (screen) {
                             is AppScreen.Onboarding -> {
                                 val onboardingViewModel: OnboardingViewModel = viewModel(
@@ -189,8 +230,11 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onOpenAddFriends = { currentScreen = AppScreen.AddFriends },
                                     onOpenNotifications = { currentScreen = AppScreen.Notifications },
-                                    onOpenAppSettings = { currentScreen = AppScreen.AppSettings },
-                                    onOpenProfileSettings = { currentScreen = AppScreen.ProfileSettings }
+                                    onOpenSettings = { currentScreen = AppScreen.Settings },
+                                    onOpenProfile = { userId ->
+                                        profileReturnScreen = AppScreen.Home
+                                        currentScreen = AppScreen.UserProfile(userId)
+                                    }
                                 )
                             }
 
@@ -207,6 +251,10 @@ class MainActivity : ComponentActivity() {
                                     viewModel = chatViewModel,
                                     onBack = {
                                         currentScreen = AppScreen.Home
+                                    },
+                                    onOpenProfile = { userId ->
+                                        profileReturnScreen = screen
+                                        currentScreen = AppScreen.UserProfile(userId)
                                     }
                                 )
                             }
@@ -234,9 +282,14 @@ class MainActivity : ComponentActivity() {
                                 val friends by homeViewModel.friends.collectAsState()
                                 val requests by homeViewModel.pendingRequests.collectAsState()
                                 val conversations by homeViewModel.conversations.collectAsState()
-                                M3FriendsTab(homeViewModel, friends, requests, onBack = { currentScreen = AppScreen.Home }) { friend ->
+                                M3FriendsTab(homeViewModel, friends, requests, onBack = { currentScreen = AppScreen.Home },
+                                    onOpenProfile = { userId ->
+                                        profileReturnScreen = AppScreen.AddFriends
+                                        currentScreen = AppScreen.UserProfile(userId)
+                                    }) { friend ->
                                     val existing = conversations.firstOrNull { it.otherUserId == friend.id }
-                                    if (existing != null) currentScreen = AppScreen.Chat(existing.id) else homeViewModel.sync()
+                                    if (existing != null) currentScreen = AppScreen.Chat(existing.id)
+                                    else homeViewModel.openConversationWithFriend(friend) { currentScreen = AppScreen.Chat(it) }
                                 }
                             }
                             is AppScreen.Notifications -> {
@@ -245,21 +298,55 @@ class MainActivity : ComponentActivity() {
                                 val requests by homeViewModel.pendingRequests.collectAsState()
                                 M3NotificationsPage(homeViewModel, requests) { currentScreen = AppScreen.Home }
                             }
+                            is AppScreen.Settings -> {
+                                M3SettingsPage(
+                                    onBack = { currentScreen = AppScreen.Home },
+                                    onOpenProfileSettings = { currentScreen = AppScreen.ProfileSettings },
+                                    onOpenAppSettings = { currentScreen = AppScreen.AppSettings }
+                                )
+                            }
                             is AppScreen.AppSettings -> {
                                 val homeViewModel: HomeViewModel = viewModel(factory = HomeViewModel.Factory(
                                     authRepository, friendRepository, chatRepository, supabaseProvider))
-                                M3AppSettingsPage(homeViewModel) { currentScreen = AppScreen.Home }
+                                M3AppSettingsPage(homeViewModel) { currentScreen = AppScreen.Settings }
                             }
                             is AppScreen.ProfileSettings -> {
                                 val homeViewModel: HomeViewModel = viewModel(factory = HomeViewModel.Factory(
                                     authRepository, friendRepository, chatRepository, supabaseProvider))
-                                M3ProfileTab(homeViewModel, onBack = { currentScreen = AppScreen.Home })
+                                M3ProfileTab(homeViewModel, onBack = { currentScreen = AppScreen.Settings })
                             }
+                            is AppScreen.UserProfile -> {
+                                val homeViewModel: HomeViewModel = viewModel(factory = HomeViewModel.Factory(
+                                    authRepository, friendRepository, chatRepository, supabaseProvider))
+                                PublicProfilePage(
+                                    userId = screen.userId,
+                                    friendRepository = friendRepository,
+                                    homeViewModel = homeViewModel,
+                                    friends = homeViewModel.friends.collectAsState().value,
+                                    requests = homeViewModel.allRequests.collectAsState().value,
+                                    conversations = homeViewModel.conversations.collectAsState().value,
+                                    onBack = { currentScreen = profileReturnScreen },
+                                    onOpenConversation = { currentScreen = AppScreen.Chat(it) }
+                                )
+                            }
+                        }
+                        }
+
+                        if (screen is AppScreen.Chat) {
+                            renderScreen()
+                        } else {
+                            ExpressivePagesTheme(content = renderScreen)
                         }
                     }
                 }
             }
         }
+        }
     }
-}
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        notificationConversationRequest = intent.getStringExtra(EXTRA_NOTIFICATION_CONVERSATION_ID)
+    }
 }

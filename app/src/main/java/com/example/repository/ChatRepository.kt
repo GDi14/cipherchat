@@ -14,6 +14,7 @@ import com.example.crypto.VoiceOfUserEmphasis
 import com.example.data.local.AppDatabase
 import com.example.data.local.ConversationEntity
 import com.example.data.local.MessageEntity
+import com.example.data.local.HiddenMessageEntity
 import com.example.data.local.ProfileEntity
 import com.example.data.local.SecurePreferencesManager
 import com.example.data.remote.ConversationDto
@@ -21,10 +22,12 @@ import com.example.data.remote.ConversationMemberDto
 import com.example.data.remote.GroupSenderKeyDto
 import com.example.data.remote.MessageDto
 import com.example.data.remote.MessageReceiptDto
+import com.example.data.remote.ProfileDto
 import com.example.data.remote.PrekeyDto
 import com.example.data.remote.SupabaseClientProvider
 import com.example.data.remote.TypingStatusDto
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
@@ -37,6 +40,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -44,6 +48,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import org.whispersystems.libsignal.SignalProtocolAddress
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 import java.util.UUID
 
 class ChatRepository(
@@ -61,10 +68,24 @@ class ChatRepository(
     fun activateConversation(conversationId: String) {
         activeConversationId = conversationId
     }
-    val myUserId: String = securePrefs.getOrCreateUserId()
+    val myUserId: String get() = securePrefs.getOrCreateUserId()
     fun getMyDisplayName(): String = securePrefs.getDisplayName() ?: "Me"
     private val scope = CoroutineScope(Dispatchers.IO + Job())
     private val encryptionMutex = Mutex()
+
+    private fun messageTimestamp(createdAt: String?): Long {
+        if (createdAt.isNullOrBlank() || createdAt.length < 19) return System.currentTimeMillis()
+        val base = runCatching {
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply {
+                isLenient = false
+                timeZone = TimeZone.getTimeZone("UTC")
+            }.parse(createdAt.substring(0, 19))?.time
+        }.getOrNull() ?: return System.currentTimeMillis()
+        val fraction = createdAt.indexOf('.').takeIf { it >= 0 }?.let { dot ->
+            createdAt.substring(dot + 1).takeWhile(Char::isDigit).take(3).padEnd(3, '0').toLongOrNull()
+        } ?: 0L
+        return base + fraction
+    }
 
     // Typing status per conversation: conversationId -> set of userIds typing
     private val _typingUsers = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
@@ -93,7 +114,20 @@ class ChatRepository(
         database.conversationDao().getAllConversations()
 
     fun getMessagesForConversation(convId: String): Flow<List<MessageEntity>> =
-        database.messageDao().getMessagesForConversation(convId)
+        database.messageDao().getLatestMessagesForConversation(convId, 300).map { it.asReversed() }
+
+    suspend fun getOlderMessages(
+        convId: String,
+        beforeTimestamp: Long,
+        beforeId: String,
+        limit: Int
+    ): List<MessageEntity> = withContext(Dispatchers.IO) {
+        database.messageDao().getOlderMessages(convId, beforeTimestamp, beforeId, limit).asReversed()
+    }
+
+    suspend fun hideMessageLocally(messageId: String) = withContext(Dispatchers.IO) {
+        database.messageDao().hideMessage(HiddenMessageEntity(messageId))
+    }
 
     suspend fun getConversation(convId: String): ConversationEntity? = withContext(Dispatchers.IO) {
         database.conversationDao().getConversationById(convId)
@@ -111,7 +145,7 @@ class ChatRepository(
                 val client = supabaseProvider.getClient()
                 // 1. Insert conversation
                 client.postgrest["conversations"].insert(
-                    ConversationDto(id = convId, type = "group", title = title)
+                    ConversationDto(id = convId, type = "group", title = title, createdBy = myUserId)
                 )
 
                 // 2. Insert conversation members
@@ -272,11 +306,41 @@ class ChatRepository(
         mimeType: String,
         caption: String = "",
         durationSeconds: Int = 0,
-        replyToMessage: MessageEntity? = null
+        replyToMessage: MessageEntity? = null,
+        messageId: String = UUID.randomUUID().toString()
     ): Result<MessageEntity> = withContext(Dispatchers.IO) {
+        var optimisticMessageSaved = false
         try {
             val conv = database.conversationDao().getConversationById(conversationId)
                 ?: return@withContext Result.failure(IllegalStateException("Conversation not found"))
+
+            val timestamp = System.currentTimeMillis()
+            val snippet = when {
+                mimeType.startsWith("audio") -> "Voice Note (${durationSeconds}s)"
+                mimeType.startsWith("video") -> "Video"
+                else -> "Photo"
+            }
+            val replySnippet = replyToMessage?.let {
+                if (it.plaintextBody.isNotBlank()) it.plaintextBody.take(60) else "[Media]"
+            }
+            val pendingEntity = MessageEntity(
+                id = messageId,
+                conversationId = conversationId,
+                senderId = myUserId,
+                senderName = securePrefs.getDisplayName() ?: "Me",
+                recipientId = conv.otherUserId,
+                plaintextBody = caption.trim(),
+                replyToId = replyToMessage?.id,
+                replySnippet = replySnippet,
+                mediaType = mimeType,
+                mediaDuration = durationSeconds,
+                localDecryptedPath = file.absolutePath,
+                status = "sending",
+                timestamp = timestamp
+            )
+            database.messageDao().insertOrUpdate(pendingEntity)
+            optimisticMessageSaved = true
+            database.conversationDao().updateLastMessage(conversationId, "[$snippet]", timestamp)
 
             val fileBytes = file.readBytes()
             val encMedia = MediaEncryptor.encrypt(fileBytes)
@@ -286,6 +350,17 @@ class ChatRepository(
             // Upload encrypted ciphertext file to Supabase Storage
             if (supabaseProvider.isConfigured) {
                 val client = supabaseProvider.getClient()
+                val authUserId = client.auth.currentUserOrNull()?.id
+                    ?: error("Your secure cloud session expired. Sign in again before sending media.")
+                check(securePrefs.getSupabaseAuthUserId() == authUserId) {
+                    "The signed-in account changed. Sign in again before sending media."
+                }
+                val linkedProfile = client.postgrest["profiles"].select {
+                    filter { eq("auth_user_id", authUserId) }
+                }.decodeList<ProfileDto>().firstOrNull()
+                check(linkedProfile?.id == myUserId) {
+                    "This device is not linked to the active chat profile. Sign in again to refresh the profile link."
+                }
                 val bucket = client.storage["chat-media"]
                 bucket.upload(storagePath, encMedia.encryptedBytes) {
                     upsert = true
@@ -301,21 +376,13 @@ class ChatRepository(
                 fileName = file.name
             )
 
-            val snippet = when {
-                mimeType.startsWith("audio") -> "Voice Note (${durationSeconds}s)"
-                mimeType.startsWith("video") -> "Video"
-                else -> "Photo"
-            }
-
             val payload = MessagePayload(
                 text = caption.trim(),
                 replyToId = replyToMessage?.id,
-                replySnippet = replyToMessage?.plaintextBody?.take(60),
+                replySnippet = replySnippet,
                 media = mediaPayload
             )
             val payloadBytes = MessagePayloadCodec.encode(payload)
-            val messageId = UUID.randomUUID().toString()
-
             val isDirect = conv.type == "direct"
             val recipientId = conv.otherUserId
 
@@ -363,7 +430,7 @@ class ChatRepository(
                 mediaDuration = durationSeconds,
                 localDecryptedPath = file.absolutePath,
                 status = "sent",
-                timestamp = System.currentTimeMillis()
+                timestamp = timestamp
             )
             database.messageDao().insertOrUpdate(entity)
             database.conversationDao().updateLastMessage(conversationId, displayLabel, entity.timestamp)
@@ -371,6 +438,9 @@ class ChatRepository(
             Result.success(entity)
         } catch (e: Exception) {
             e.printStackTrace()
+            if (optimisticMessageSaved) {
+                runCatching { database.messageDao().updateStatus(messageId, "failed") }
+            }
             Result.failure(e)
         }
     }
@@ -701,7 +771,7 @@ class ChatRepository(
                 mediaIv = payload.media?.iv,
                 mediaDuration = payload.media?.durationSeconds ?: 0,
                 status = if (conversationIsVisible) "read" else "delivered",
-                timestamp = System.currentTimeMillis()
+                timestamp = messageTimestamp(dto.createdAt)
             )
 
             database.messageDao().insertOrUpdate(entity)
@@ -744,7 +814,7 @@ class ChatRepository(
                 plaintextBody = "[Decryption Failed: Ratchet Key Mismatch]",
                 messageType = dto.messageType,
                 status = "failed",
-                timestamp = System.currentTimeMillis()
+                timestamp = messageTimestamp(dto.createdAt)
             )
             database.messageDao().insertOrUpdate(entity)
         }

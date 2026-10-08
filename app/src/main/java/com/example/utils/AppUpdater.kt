@@ -9,14 +9,13 @@ import android.util.Log
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 
 object AppUpdater {
     private const val TAG = "AppUpdater"
-    private const val GITHUB_API_URL = "https://api.github.com/repos/GDi14/cipher-chat/releases/latest"
+    private const val GITHUB_API_URL = "https://api.github.com/repos/GDI14/cipherchat/releases?per_page=20"
 
     data class ReleaseInfo(
         val tagName: String,
@@ -40,28 +39,29 @@ object AppUpdater {
             }
 
             val responseString = connection.inputStream.bufferedReader().use { it.readText() }
-            val json = JSONObject(responseString)
-            val tagName = json.optString("tag_name", "")
-            val body = json.optString("body", "")
-
-            val assets = json.optJSONArray("assets")
-            var apkUrl = ""
-            if (assets != null) {
-                for (i in 0 until assets.length()) {
-                    val asset = assets.optJSONObject(i) ?: continue
-                    val name = asset.optString("name", "")
-                    if (name.endsWith(".apk", ignoreCase = true)) {
-                        apkUrl = asset.optString("browser_download_url", "")
-                        break
+            val releases = org.json.JSONArray(responseString)
+            for (releaseIndex in 0 until releases.length()) {
+                val json = releases.optJSONObject(releaseIndex) ?: continue
+                if (json.optBoolean("draft", true)) continue
+                val tagName = json.optString("tag_name", "")
+                val body = json.optString("body", "")
+                val assets = json.optJSONArray("assets")
+                var apkUrl = ""
+                if (assets != null) {
+                    for (i in 0 until assets.length()) {
+                        val asset = assets.optJSONObject(i) ?: continue
+                        val name = asset.optString("name", "")
+                        if (name.endsWith(".apk", ignoreCase = true)) {
+                            apkUrl = asset.optString("browser_download_url", "")
+                            break
+                        }
                     }
                 }
+                if (tagName.isNotBlank() && apkUrl.isNotBlank()) {
+                    return@withContext ReleaseInfo(tagName = tagName, apkUrl = apkUrl, releaseNotes = body)
+                }
             }
-
-            if (tagName.isBlank() || apkUrl.isBlank()) {
-                return@withContext null
-            }
-
-            ReleaseInfo(tagName = tagName, apkUrl = apkUrl, releaseNotes = body)
+            null
         } catch (e: Exception) {
             Log.e(TAG, "Error checking for updates", e)
             null
@@ -87,27 +87,37 @@ object AppUpdater {
             }
 
             val fileLength = connection.contentLength
-            val input = connection.inputStream
-            val output = apkFile.outputStream()
-
-            val data = ByteArray(4096)
-            var total: Long = 0
-            var count: Int
-            while (input.read(data).also { count = it } != -1) {
-                total += count.toLong()
-                if (fileLength > 0) {
-                    val progress = ((total * 100) / fileLength).toInt()
-                    onProgress(progress)
+            connection.inputStream.use { input ->
+                apkFile.outputStream().use { output ->
+                    val data = ByteArray(16 * 1024)
+                    var total = 0L
+                    var lastProgress = -1
+                    var count: Int
+                    while (input.read(data).also { count = it } != -1) {
+                        total += count.toLong()
+                        output.write(data, 0, count)
+                        if (fileLength > 0) {
+                            val progress = ((total * 100) / fileLength).toInt().coerceIn(0, 100)
+                            if (progress != lastProgress) {
+                                lastProgress = progress
+                                withContext(Dispatchers.Main) { onProgress(progress) }
+                            }
+                        }
+                    }
+                    output.flush()
                 }
-                output.write(data, 0, count)
             }
-            output.flush()
-            output.close()
-            input.close()
+
+            if (apkFile.length() == 0L || (fileLength > 0 && apkFile.length() != fileLength.toLong())) {
+                apkFile.delete()
+                throw IllegalStateException("The downloaded APK is incomplete")
+            }
 
             withContext(Dispatchers.Main) {
+                onProgress(100)
                 installApk(context, apkFile)
             }
+            connection.disconnect()
         } catch (e: Exception) {
             Log.e(TAG, "Download failed", e)
             withContext(Dispatchers.Main) {
@@ -153,5 +163,41 @@ object AppUpdater {
         } catch (e: Exception) {
             "1.0.0"
         }
+    }
+
+    fun isNewerRelease(releaseTag: String, currentVersion: String): Boolean {
+        fun parts(value: String): List<Int> = value.trim().removePrefix("v").removePrefix("V")
+            .substringBefore('-').substringBefore('+')
+            .split('.')
+            .mapNotNull { token -> token.takeWhile(Char::isDigit).toIntOrNull() }
+
+        val latest = parts(releaseTag)
+        val installed = parts(currentVersion)
+        if (latest.isEmpty() || installed.isEmpty()) return false
+        for (index in 0 until maxOf(latest.size, installed.size)) {
+            val latestPart = latest.getOrElse(index) { 0 }
+            val installedPart = installed.getOrElse(index) { 0 }
+            if (latestPart != installedPart) return latestPart > installedPart
+        }
+        val latestIsPrerelease = '-' in releaseTag
+        val installedIsPrerelease = '-' in currentVersion
+        if (latestIsPrerelease != installedIsPrerelease) return installedIsPrerelease && !latestIsPrerelease
+        if (latestIsPrerelease) {
+            val latestSuffix = releaseTag.substringAfter('-', "").split('.')
+            val installedSuffix = currentVersion.substringAfter('-', "").split('.')
+            for (index in 0 until maxOf(latestSuffix.size, installedSuffix.size)) {
+                val latestPart = latestSuffix.getOrElse(index) { "" }
+                val installedPart = installedSuffix.getOrElse(index) { "" }
+                if (latestPart == installedPart) continue
+                val latestNumber = latestPart.toLongOrNull()
+                val installedNumber = installedPart.toLongOrNull()
+                if (latestNumber != null && installedNumber != null) return latestNumber > installedNumber
+                if (latestNumber != null) return false // Numeric identifiers sort before text identifiers.
+                if (installedNumber != null) return true
+                return latestPart.compareTo(installedPart, ignoreCase = true) > 0
+            }
+            return false
+        }
+        return false
     }
 }

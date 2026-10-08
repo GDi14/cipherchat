@@ -2,61 +2,106 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Material 3 palette: ultraviolet, mineral blue, and a warm citrus accent.
-// The app uses fixed light and dark schemes so encrypted content stays legible
-// and the visual identity remains consistent across devices.
-val ExpressiveDarkBackground = Color(0xFF101017)
-val ExpressiveDarkSurface = Color(0xFF15151E)
-val ExpressiveDarkSurfaceContainer = Color(0xFF1D1D28)
-val ExpressiveDarkSurfaceContainerHigh = Color(0xFF272735)
-val ExpressiveDarkSurfaceContainerHighest = Color(0xFF333342)
-val ExpressiveDarkOutline = Color(0xFF9291A3)
-val ExpressiveDarkOutlineVariant = Color(0xFF9A99A8)
+// Plum, lavender, and blush palette drawn from the supplied interface references.
+val KleinBlue = Color(0xFF4A075F)
+val Citric = Color(0xFFCDF564)
+val Aquamarine = Color(0xFF9BF0E1)
+val Fuchsia = Color(0xFF8139A0)
+val Tangerine = Color(0xFFFF4632)
+val BrandBlack = Color(0xFF19071F)
 
-val ExpressiveDarkPrimary = Color(0xFFC7B7FF)
-val ExpressiveDarkOnPrimary = Color(0xFF302063)
-val ExpressiveDarkPrimaryContainer = Color(0xFF49465A)
-val ExpressiveDarkOnPrimaryContainer = Color(0xFFE9DDFF)
+// Keep both Compose themes on the same reference-derived light palette.
+val ExpressiveLightBackground = Color(0xFFF8E9FF)
+val ExpressiveLightSurface = Color(0xFFFFFAFF)
+val ExpressiveLightSurfaceContainer = Color(0xFFF0D9F7)
+val ExpressiveLightSurfaceContainerHigh = Color(0xFFEBD0F5)
+val ExpressiveLightSurfaceContainerHighest = Color(0xFFE4C2EE)
+val ExpressiveLightOutline = Color(0xFF78677E)
+val ExpressiveLightOutlineVariant = Color(0xFFD0BBD7)
 
-val ExpressiveDarkSecondary = Color(0xFFA9D4FF)
-val ExpressiveDarkOnSecondary = Color(0xFF003355)
-val ExpressiveDarkSecondaryContainer = Color(0xFF174A70)
-val ExpressiveDarkOnSecondaryContainer = Color(0xFFD1E8FF)
+val ExpressiveLightPrimary = Color(0xFF4A075F)
+val ExpressiveLightOnPrimary = Color.White
+val ExpressiveLightPrimaryContainer = Color(0xFFDFA2F4)
+val ExpressiveLightOnPrimaryContainer = Color(0xFF310044)
 
-val ExpressiveDarkTertiary = Color(0xFFE6B8D0)
-val ExpressiveDarkOnTertiary = Color(0xFF43283A)
-val ExpressiveDarkTertiaryContainer = Color(0xFF594253)
-val ExpressiveDarkOnTertiaryContainer = Color(0xFFFFE6F0)
+val ExpressiveLightSecondary = Color(0xFF8139A0)
+val ExpressiveLightOnSecondary = Color.White
+val ExpressiveLightSecondaryContainer = Color(0xFFF1D2FF)
+val ExpressiveLightOnSecondaryContainer = Color(0xFF330044)
 
-val ExpressiveDarkError = Color(0xFFFFB4AB)
-val ExpressiveDarkOnError = Color(0xFF690005)
-val ExpressiveDarkErrorContainer = Color(0xFF93000A)
-val ExpressiveDarkOnErrorContainer = Color(0xFFFFDAD6)
+val ExpressiveLightTertiary = Color(0xFF006B8F)
+val ExpressiveLightOnTertiary = Color.White
+val ExpressiveLightTertiaryContainer = Color(0xFFBCEAFF)
+val ExpressiveLightOnTertiaryContainer = Color(0xFF001F2A)
 
-val ExpressiveLightBackground = Color(0xFFF8F6FF)
-val ExpressiveLightSurface = Color(0xFFFFFBFF)
-val ExpressiveLightSurfaceContainer = Color(0xFFF0EDF8)
-val ExpressiveLightSurfaceContainerHigh = Color(0xFFE9E5F3)
-val ExpressiveLightSurfaceContainerHighest = Color(0xFFE2DEED)
-val ExpressiveLightOutline = Color(0xFF777487)
-val ExpressiveLightOutlineVariant = Color(0xFF777487)
+val ExpressiveLightError = Tangerine
+val ExpressiveLightOnError = BrandBlack
+val ExpressiveLightErrorContainer = Color(0xFFFFE1DB)
+val ExpressiveLightOnErrorContainer = BrandBlack
 
-val ExpressiveLightPrimary = Color(0xFF59449A)
-val ExpressiveLightOnPrimary = Color(0xFFFFFFFF)
-val ExpressiveLightPrimaryContainer = Color(0xFFE9DDFF)
-val ExpressiveLightOnPrimaryContainer = Color(0xFF21104D)
+// Dark scheme: deep plum surfaces with bright lilac and cyan controls.
+val ExpressiveDarkBackground = Color(0xFF19071F)
+val ExpressiveDarkSurface = Color(0xFF220B29)
+val ExpressiveDarkSurfaceContainer = Color(0xFF220B29)
+val ExpressiveDarkSurfaceContainerHigh = Color(0xFF3B1745)
+val ExpressiveDarkSurfaceContainerHighest = Color(0xFF4B2056)
+val ExpressiveDarkOutline = Color(0xFF9C899F)
+val ExpressiveDarkOutlineVariant = Color(0xFF57445E)
 
-val ExpressiveLightSecondary = Color(0xFF315F84)
-val ExpressiveLightOnSecondary = Color(0xFFFFFFFF)
-val ExpressiveLightSecondaryContainer = Color(0xFFD1E8FF)
-val ExpressiveLightOnSecondaryContainer = Color(0xFF001D32)
+val ExpressiveDarkPrimary = Color(0xFFE7B2F6)
+val ExpressiveDarkOnPrimary = Color(0xFF3C064F)
+val ExpressiveDarkPrimaryContainer = Color(0xFF632779)
+val ExpressiveDarkOnPrimaryContainer = Color(0xFFFFD6FF)
 
-val ExpressiveLightTertiary = Color(0xFF6D5D00)
-val ExpressiveLightOnTertiary = Color(0xFFFFFFFF)
-val ExpressiveLightTertiaryContainer = Color(0xFFF4E39A)
-val ExpressiveLightOnTertiaryContainer = Color(0xFF211B00)
+val ExpressiveDarkSecondary = Color(0xFFD9B6E8)
+val ExpressiveDarkOnSecondary = Color(0xFF3C174B)
+val ExpressiveDarkSecondaryContainer = Color(0xFF533260)
+val ExpressiveDarkOnSecondaryContainer = Color(0xFFF5D9FF)
 
-val ExpressiveLightError = Color(0xFFBA1A1A)
-val ExpressiveLightOnError = Color(0xFFFFFFFF)
-val ExpressiveLightErrorContainer = Color(0xFFFFDAD6)
-val ExpressiveLightOnErrorContainer = Color(0xFF410002)
+val ExpressiveDarkTertiary = Color(0xFF8CD7F4)
+val ExpressiveDarkOnTertiary = Color(0xFF003545)
+val ExpressiveDarkTertiaryContainer = Color(0xFF004D64)
+val ExpressiveDarkOnTertiaryContainer = Color(0xFFC0EFFF)
+
+val ExpressiveDarkError = Tangerine
+val ExpressiveDarkOnError = BrandBlack
+val ExpressiveDarkErrorContainer = Color(0xFF6A251C)
+val ExpressiveDarkOnErrorContainer = Color(0xFFFFE1DB)
+// Reference-driven expressive page colors.
+val PageLightBackground = Color(0xFFF8E9FF)
+val PageLightSurface = Color(0xFFFFFAFF)
+val PageLightSurfaceLow = Color(0xFFF2DDF9)
+val PageLightSurfaceHigh = Color(0xFFEBD0F5)
+val PageLightPrimary = Color(0xFF4A075F)
+val PageLightOnPrimary = Color.White
+val PageLightPrimaryContainer = Color(0xFFDFA2F4)
+val PageLightOnPrimaryContainer = Color(0xFF310044)
+val PageLightSecondary = Color(0xFF8139A0)
+val PageLightOnSecondary = Color.White
+val PageLightSecondaryContainer = Color(0xFFF1D2FF)
+val PageLightOnSecondaryContainer = Color(0xFF330044)
+val PageLightTertiary = Color(0xFF006B8F)
+val PageLightOnTertiary = Color.White
+val PageLightTertiaryContainer = Color(0xFFBCEAFF)
+val PageLightOnTertiaryContainer = Color(0xFF001F2A)
+val PageLightOutline = Color(0xFF78677E)
+val PageLightOutlineVariant = Color(0xFFD0BBD7)
+
+val PageDarkBackground = Color(0xFF19071F)
+val PageDarkSurface = Color(0xFF220B29)
+val PageDarkSurfaceLow = Color(0xFF2B1033)
+val PageDarkSurfaceHigh = Color(0xFF3B1745)
+val PageDarkPrimary = Color(0xFFE7B2F6)
+val PageDarkOnPrimary = Color(0xFF3C064F)
+val PageDarkPrimaryContainer = Color(0xFF632779)
+val PageDarkOnPrimaryContainer = Color(0xFFFFD6FF)
+val PageDarkSecondary = Color(0xFFD9B6E8)
+val PageDarkOnSecondary = Color(0xFF3C174B)
+val PageDarkSecondaryContainer = Color(0xFF533260)
+val PageDarkOnSecondaryContainer = Color(0xFFF5D9FF)
+val PageDarkTertiary = Color(0xFF8CD7F4)
+val PageDarkOnTertiary = Color(0xFF003545)
+val PageDarkTertiaryContainer = Color(0xFF004D64)
+val PageDarkOnTertiaryContainer = Color(0xFFC0EFFF)
+val PageDarkOutline = Color(0xFF9C899F)
+val PageDarkOutlineVariant = Color(0xFF57445E)

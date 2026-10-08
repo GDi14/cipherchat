@@ -4,6 +4,7 @@ import android.content.Context
 import com.example.data.local.SecurePreferencesManager
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.createSupabaseClient
+import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.serializer.MoshiSerializer
@@ -60,6 +61,12 @@ class SupabaseClientProvider(
         ) {
             httpEngine = OkHttp.create()
             defaultSerializer = MoshiSerializer()
+            install(Auth) {
+                // Keep refresh-token rotation and session persistence enabled for native sign-in.
+                autoLoadFromStorage = true
+                autoSaveToStorage = true
+                alwaysAutoRefresh = true
+            }
             install(Postgrest)
             install(Realtime)
             install(Storage)

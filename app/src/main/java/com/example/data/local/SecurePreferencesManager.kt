@@ -42,13 +42,28 @@ class SecurePreferencesManager(context: Context) {
         return deviceId
     }
 
-    fun saveProfile(displayName: String, tag: String, avatarPath: String?) {
+    fun saveProfile(displayName: String, tag: String, avatarPath: String?, authUserId: String? = getSupabaseAuthUserId()) {
         encryptedPrefs.edit()
             .putString(KEY_DISPLAY_NAME, displayName)
             .putString(KEY_TAG, tag)
             .putString(KEY_AVATAR_PATH, avatarPath)
             .putBoolean(KEY_REGISTERED, true)
+            .putString(KEY_SUPABASE_AUTH_USER_ID, authUserId)
             .apply()
+    }
+
+    fun setCurrentUserId(userId: String) {
+        encryptedPrefs.edit().putString(KEY_USER_ID, userId).apply()
+    }
+
+    fun getSupabaseAuthUserId(): String? = encryptedPrefs.getString(KEY_SUPABASE_AUTH_USER_ID, null)
+
+    fun saveSupabaseAuthUserId(userId: String) {
+        encryptedPrefs.edit().putString(KEY_SUPABASE_AUTH_USER_ID, userId).apply()
+    }
+
+    fun clearSupabaseAuthUserId() {
+        encryptedPrefs.edit().remove(KEY_SUPABASE_AUTH_USER_ID).apply()
     }
 
     fun getDisplayName(): String? = encryptedPrefs.getString(KEY_DISPLAY_NAME, null)
@@ -59,6 +74,12 @@ class SecurePreferencesManager(context: Context) {
     fun setVoiceOfUserEnabled(enabled: Boolean) {
         encryptedPrefs.edit().putBoolean(KEY_VOICE_OF_USER, enabled).apply()
     }
+
+    fun setApplicationForeground(isForeground: Boolean) {
+        encryptedPrefs.edit().putBoolean(KEY_APP_FOREGROUND, isForeground).apply()
+    }
+
+    fun isApplicationForeground(): Boolean = encryptedPrefs.getBoolean(KEY_APP_FOREGROUND, false)
 
     fun getFavoriteFriendIds(): Set<String> =
         encryptedPrefs.getStringSet(KEY_FAVORITE_FRIEND_IDS, emptySet())?.toSet() ?: emptySet()
@@ -89,6 +110,8 @@ class SecurePreferencesManager(context: Context) {
         private const val KEY_AVATAR_PATH = "pref_avatar_path"
         private const val KEY_FAVORITE_FRIEND_IDS = "pref_favorite_friend_ids"
         private const val KEY_REGISTERED = "pref_is_registered"
+        private const val KEY_SUPABASE_AUTH_USER_ID = "pref_supabase_auth_user_id"
+        private const val KEY_APP_FOREGROUND = "pref_app_foreground"
         private const val KEY_VOICE_OF_USER = "pref_voice_of_user_enabled"
         private const val KEY_SUPABASE_URL = "pref_supabase_url"
         private const val KEY_SUPABASE_ANON_KEY = "pref_supabase_anon_key"

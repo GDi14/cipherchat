@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import com.example.data.local.ConversationEntity
 import com.example.data.local.MessageEntity
 import com.example.repository.ChatRepository
@@ -15,6 +16,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -53,11 +55,18 @@ class ChatViewModel(
     private val persistedMessages: StateFlow<List<MessageEntity>> =
         chatRepository.getMessagesForConversation(conversationId)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    private val _olderMessages = MutableStateFlow<List<MessageEntity>>(emptyList())
     private val _pendingMessages = MutableStateFlow<List<MessageEntity>>(emptyList())
-    val messages: StateFlow<List<MessageEntity>> = combine(persistedMessages, _pendingMessages) { persisted, pending ->
-        val persistedIds = persisted.mapTo(HashSet()) { it.id }
-        (persisted + pending.filterNot { it.id in persistedIds }).sortedBy { it.timestamp }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val messages: StateFlow<List<MessageEntity>> = combine(
+        persistedMessages, _olderMessages, _pendingMessages
+    ) { persisted, older, pending ->
+        val history = mergeByTimestamp(older, persisted).distinctBy { it.id }
+        val historyIds = history.mapTo(HashSet()) { it.id }
+        val pendingOnly = pending.filterNot { it.id in historyIds }
+            .sortedWith(compareBy<MessageEntity> { it.timestamp }.thenBy { it.id })
+        if (pendingOnly.isEmpty()) history else mergeByTimestamp(history, pendingOnly)
+    }.flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val typingUsers: StateFlow<Map<String, Set<String>>> = chatRepository.typingUsers
     val voiceOfUserEnabled: StateFlow<Boolean> = chatRepository.voiceOfUserEnabled
@@ -73,10 +82,79 @@ class ChatViewModel(
 
     private var voiceTimerJob: Job? = null
     private var typingTimerJob: Job? = null
+    private var isLoadingOlderMessages = false
+    private var hasMoreOlderMessages = true
+
+    fun loadOlderMessages() {
+        if (isLoadingOlderMessages || !hasMoreOlderMessages) return
+        val oldest = messages.value.firstOrNull() ?: return
+        isLoadingOlderMessages = true
+        viewModelScope.launch {
+            try {
+                val page = chatRepository.getOlderMessages(
+                    convId = conversationId,
+                    beforeTimestamp = oldest.timestamp,
+                    beforeId = oldest.id,
+                    limit = MESSAGE_PAGE_SIZE
+                )
+                if (page.isEmpty()) {
+                    hasMoreOlderMessages = false
+                } else {
+                    _olderMessages.update { page + it }
+                    if (page.size < MESSAGE_PAGE_SIZE) hasMoreOlderMessages = false
+                }
+            } catch (error: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    errorMessage = error.localizedMessage ?: "Couldn't load older messages"
+                )
+            } finally {
+                isLoadingOlderMessages = false
+            }
+        }
+    }
+
+    private fun mergeByTimestamp(
+        persisted: List<MessageEntity>,
+        pending: List<MessageEntity>
+    ): List<MessageEntity> {
+        val merged = ArrayList<MessageEntity>(persisted.size + pending.size)
+        var persistedIndex = 0
+        var pendingIndex = 0
+        while (persistedIndex < persisted.size && pendingIndex < pending.size) {
+            val stored = persisted[persistedIndex]
+            val provisional = pending[pendingIndex]
+            if (stored.timestamp < provisional.timestamp ||
+                (stored.timestamp == provisional.timestamp && stored.id <= provisional.id)
+            ) {
+                merged += persisted[persistedIndex++]
+            } else {
+                merged += pending[pendingIndex++]
+            }
+        }
+        while (persistedIndex < persisted.size) merged += persisted[persistedIndex++]
+        while (pendingIndex < pending.size) merged += pending[pendingIndex++]
+        return merged
+    }
+
+    private companion object {
+        const val MESSAGE_PAGE_SIZE = 100
+    }
 
     init {
         viewModelScope.launch {
+            var previousLatest: List<MessageEntity>? = null
             persistedMessages.collect { stored ->
+                val previous = previousLatest
+                if (previous != null && stored.isNotEmpty()) {
+                    val currentIds = stored.mapTo(HashSet()) { it.id }
+                    val evictedFromLatestWindow = previous.filterNot { it.id in currentIds }
+                    if (evictedFromLatestWindow.isNotEmpty()) {
+                        _olderMessages.update { older ->
+                            mergeByTimestamp(older, evictedFromLatestWindow).distinctBy { it.id }
+                        }
+                    }
+                }
+                previousLatest = stored
                 if (stored.isNotEmpty()) {
                     val storedIds = stored.mapTo(HashSet()) { it.id }
                     _pendingMessages.update { pending -> pending.filterNot { it.id in storedIds } }
@@ -96,6 +174,9 @@ class ChatViewModel(
     fun markRead() {
         chatRepository.activateConversation(conversationId)
         viewModelScope.launch {
+            // Reconcile with the relay on every foreground entry so a dropped
+            // realtime subscription never leaves the user waiting for refresh.
+            chatRepository.syncAllFromSupabase()
             chatRepository.markConversationAsRead(conversationId)
         }
     }
@@ -123,7 +204,18 @@ class ChatViewModel(
         _uiState.value = _uiState.value.copy(replyingTo = message)
     }
 
-    fun sendTextMessage(): MessageEntity? {
+    fun hideMessage(message: MessageEntity) {
+        viewModelScope.launch {
+            runCatching { chatRepository.hideMessageLocally(message.id) }
+                .onFailure { error ->
+                    _uiState.value = _uiState.value.copy(
+                        errorMessage = error.localizedMessage ?: "Couldn't delete this message"
+                    )
+                }
+        }
+    }
+
+    fun sendTextMessage(onProvisionalCreated: (MessageEntity) -> Unit = {}): MessageEntity? {
         val text = _uiState.value.inputText.trim()
         if (text.isBlank()) return null
         val replyTo = _uiState.value.replyingTo
@@ -140,6 +232,10 @@ class ChatViewModel(
             status = "sending",
             timestamp = timestamp
         )
+
+        // Let the screen register the flight proxy before publishing the real
+        // row, so Compose cannot draw both during the same send handoff.
+        onProvisionalCreated(provisional)
 
         // Publish the row synchronously so Compose can lay it out before the
         // repository starts encryption or any network work.
@@ -199,6 +295,7 @@ class ChatViewModel(
 
         if (result != null) {
             val (file, duration) = result
+            val replyTo = _uiState.value.replyingTo
             _uiState.value = _uiState.value.copy(isSending = true)
             viewModelScope.launch {
                 val sendResult = chatRepository.sendMediaMessage(
@@ -207,7 +304,7 @@ class ChatViewModel(
                     mimeType = "audio/m4a",
                     caption = "",
                     durationSeconds = duration,
-                    replyToMessage = _uiState.value.replyingTo
+                    replyToMessage = replyTo
                 )
                 _uiState.value = _uiState.value.copy(
                     isSending = false,
@@ -229,6 +326,7 @@ class ChatViewModel(
     }
 
     fun sendMediaUri(uri: Uri, mimeType: String) {
+        val replyTo = _uiState.value.replyingTo
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSending = true, sendingMediaUri = uri,
                 sendingMediaType = mimeType, errorMessage = null)
@@ -245,11 +343,15 @@ class ChatViewModel(
                     }
                 }
 
+                // Replace the picker preview with the persisted pending bubble
+                // before the slower encryption and upload work begins.
+                _uiState.value = _uiState.value.copy(sendingMediaUri = null, sendingMediaType = null)
+
                 val sendRes = chatRepository.sendMediaMessage(
                     conversationId = conversationId,
                     file = tempFile,
                     mimeType = mimeType,
-                    replyToMessage = _uiState.value.replyingTo
+                    replyToMessage = replyTo
                 )
                 _uiState.value = _uiState.value.copy(isSending = false, sendingMediaUri = null,
                     sendingMediaType = null, replyingTo = null)

@@ -47,6 +47,13 @@ data class MessageEntity(
     val timestamp: Long = System.currentTimeMillis()
 )
 
+/** Device-local tombstone so a hidden message stays hidden after remote sync. */
+@Entity(tableName = "hidden_messages")
+data class HiddenMessageEntity(
+    @PrimaryKey val id: String,
+    val hiddenAt: Long = System.currentTimeMillis()
+)
+
 @Entity(
     tableName = "friend_requests",
     indices = [

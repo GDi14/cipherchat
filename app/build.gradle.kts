@@ -1,4 +1,5 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import java.util.Properties
 
 plugins {
   alias(libs.plugins.android.application)
@@ -14,26 +15,37 @@ android {
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.aistudio.cryptochat.kxzvq"
+    applicationId = "com.gd.cipherchat"
     minSdk = 24
     targetSdk = 36
     versionCode = 1
-    versionName = "1.0"
+    versionName = "1.0.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
   signingConfigs {
     create("release") {
-      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-      storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
-      keyPassword = System.getenv("KEY_PASSWORD")
+      val alphaSigningProperties = Properties().apply {
+        val propertiesFile = rootProject.file("alpha-signing.properties")
+        if (propertiesFile.exists()) propertiesFile.inputStream().use(::load)
+      }
+      val keystorePath = alphaSigningProperties.getProperty("storeFile")
+        ?: System.getenv("KEYSTORE_PATH")
+        ?: rootProject.file("alpha-upload-key.jks").absolutePath
+      storeFile = rootProject.file(keystorePath)
+      storePassword = alphaSigningProperties.getProperty("storePassword") ?: System.getenv("STORE_PASSWORD")
+      keyAlias = alphaSigningProperties.getProperty("keyAlias") ?: System.getenv("KEY_ALIAS") ?: "cipherchat-alpha"
+      keyPassword = alphaSigningProperties.getProperty("keyPassword") ?: System.getenv("KEY_PASSWORD")
     }
   }
 
   buildTypes {
+    // Use the alpha identity for local Run app installs so Firebase/OAuth sees
+    // the same registered certificate used for alpha release builds.
+    debug {
+      signingConfig = signingConfigs.getByName("release")
+    }
     release {
       isCrunchPngs = false
       isMinifyEnabled = false
@@ -106,6 +118,8 @@ dependencies {
   implementation(libs.firebase.firestore)
 
   implementation(libs.firebase.auth)
+  implementation(libs.firebase.messaging)
+  implementation(libs.supabase.auth)
   implementation(libs.androidx.credentials)
   implementation(libs.androidx.credentials.play.services)
   implementation(libs.googleid)

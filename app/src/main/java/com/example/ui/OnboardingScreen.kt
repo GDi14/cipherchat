@@ -1,5 +1,13 @@
 package com.example.ui
 
+import android.app.Activity
+import android.util.Log
+import androidx.credentials.CredentialManager
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.NoCredentialException
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -39,18 +47,23 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import com.example.ui.components.ExpressiveContainedLoadingIndicator
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +71,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextAlign
+import kotlinx.coroutines.launch
 import coil.compose.AsyncImage
 import com.example.ui.components.ExpressiveAvatar
 
@@ -66,9 +81,72 @@ import com.example.ui.components.ExpressiveAvatar
 fun OnboardingScreen(viewModel: OnboardingViewModel, onRegistered: () -> Unit) {
     val state by viewModel.uiState.collectAsState()
     val focusManager = LocalFocusManager.current
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    var showProfileSetup by rememberSaveable { mutableStateOf(false) }
+
+    val launchGoogleSignIn: () -> Unit = {
+        viewModel.googleSignInStarted()
+        coroutineScope.launch {
+            try {
+                val activity = context as? Activity
+                    ?: error("Sign-in requires an Android activity")
+                val webClientIdResource = context.resources.getIdentifier(
+                    "default_web_client_id", "string", context.packageName
+                )
+                val webClientId = webClientIdResource.takeIf { it != 0 }
+                    ?.let { context.getString(it) }
+                    ?.takeIf { it.isNotBlank() }
+                    ?: error("Google sign-in is not configured. Add a Web OAuth client to Firebase and update app/google-services.json.")
+                val googleOption = GetGoogleIdOption.Builder()
+                    .setServerClientId(webClientId)
+                    .setFilterByAuthorizedAccounts(false)
+                    .setAutoSelectEnabled(false)
+                    .build()
+                val request = GetCredentialRequest.Builder()
+                    .addCredentialOption(googleOption)
+                    .build()
+                val credentialManager = CredentialManager.create(context)
+                val credential = try {
+                    credentialManager.getCredential(activity, request).credential
+                } catch (noCredential: NoCredentialException) {
+                    Log.i(
+                        "GoogleSignIn",
+                        "No Credential Manager bottom-sheet credential; trying the explicit Google sign-in flow",
+                        noCredential
+                    )
+                    val signInOption = GetSignInWithGoogleOption.Builder(webClientId).build()
+                    val signInRequest = GetCredentialRequest.Builder()
+                        .addCredentialOption(signInOption)
+                        .build()
+                    credentialManager.getCredential(activity, signInRequest).credential
+                }
+                val googleCredential = GoogleIdTokenCredential.createFrom(credential.data)
+                viewModel.signInWithGoogleIdToken(googleCredential.idToken)
+            } catch (error: Exception) {
+                Log.e(
+                    "GoogleSignIn",
+                    "Credential Manager sign-in failed: ${error.javaClass.name}: ${error.message}",
+                    error
+                )
+                viewModel.googleSignInError(error.localizedMessage ?: "Google sign-in was canceled or failed")
+            }
+        }.let { }
+    }
 
     LaunchedEffect(state.isRegistered) {
         if (state.isRegistered) onRegistered()
+    }
+
+    if (!showProfileSetup) {
+        M3WelcomeOnboarding(
+            onGetStarted = { showProfileSetup = true },
+            onLogin = {
+                showProfileSetup = true
+                launchGoogleSignIn()
+            }
+        )
+        return
     }
 
     val photoPicker = rememberLauncherForActivityResult(
@@ -121,6 +199,32 @@ fun OnboardingScreen(viewModel: OnboardingViewModel, onRegistered: () -> Unit) {
                             fontWeight = FontWeight.Bold)
                         Text("Set up a name and a unique tag so friends can find you securely.",
                             style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+
+                OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text("Verify your account", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            if (state.isGoogleVerified) "Google account verified for this profile."
+                            else "Use your Google account to secure sign-in and sync this profile.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        FilledTonalButton(
+                            onClick = launchGoogleSignIn,
+                            enabled = !state.isGoogleSignInInProgress,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            if (state.isGoogleSignInInProgress) {
+                                ExpressiveContainedLoadingIndicator(Modifier.size(24.dp), size = 18.dp)
+                            } else {
+                                Text(if (state.isGoogleVerified) "Google account connected" else "Continue with Google")
+                            }
+                        }
                     }
                 }
 
@@ -181,7 +285,7 @@ fun OnboardingScreen(viewModel: OnboardingViewModel, onRegistered: () -> Unit) {
 
                 Button(
                     onClick = { focusManager.clearFocus(); viewModel.register() },
-                    enabled = !state.isLoading,
+                    enabled = !state.isLoading && state.isGoogleVerified,
                     modifier = Modifier.fillMaxWidth().height(56.dp).testTag("register_button")
                 ) {
                     if (state.isLoading) ExpressiveContainedLoadingIndicator(Modifier.size(26.dp), size = 18.dp)
@@ -223,6 +327,68 @@ fun OnboardingScreen(viewModel: OnboardingViewModel, onRegistered: () -> Unit) {
             onDismiss = { viewModel.showSupabaseDialog(false) },
             onSave = viewModel::saveSupabaseConfig
         )
+    }
+}
+
+@Composable
+private fun M3WelcomeOnboarding(onGetStarted: () -> Unit, onLogin: () -> Unit) {
+    Scaffold(containerColor = MaterialTheme.colorScheme.background) { insets ->
+        Box(
+            Modifier.fillMaxSize().padding(insets),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 24.dp, vertical = 32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                Surface(
+                    shape = MaterialTheme.shapes.extraLarge,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                ) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 36.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(20.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            contentColor = MaterialTheme.colorScheme.primary
+                        ) {
+                            Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.padding(18.dp).size(32.dp))
+                        }
+                        Text("PRIVATE, FROM THE FIRST HELLO", style = MaterialTheme.typography.labelLarge)
+                        Text(
+                            "Your people.\nYour privacy.",
+                            style = MaterialTheme.typography.displaySmall,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                        Text(
+                            "CipherChat keeps conversations close and message keys on your device.",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.82f),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+                Button(onClick = onGetStarted, modifier = Modifier.fillMaxWidth().height(56.dp)) {
+                    Text("Get started", style = MaterialTheme.typography.titleMedium)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Already have an account?", style = MaterialTheme.typography.bodyMedium)
+                    TextButton(onClick = onLogin) { Text("Log in") }
+                }
+                Text(
+                    "End-to-end encrypted · Built for your privacy",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
     }
 }
 

@@ -87,6 +87,18 @@ class HomeViewModel(
         _uiState.value = _uiState.value.copy(favoriteFriendIds = updated)
     }
 
+    fun openConversationWithFriend(friend: ProfileEntity, onReady: (String) -> Unit) {
+        viewModelScope.launch {
+            friendRepository.getOrCreateDirectConversation(friend)
+                .onSuccess(onReady)
+                .onFailure { error ->
+                    _uiState.value = _uiState.value.copy(
+                        errorMessage = error.localizedMessage ?: "Couldn't open this conversation"
+                    )
+                }
+        }
+    }
+
     fun setVoiceOfUserEnabled(enabled: Boolean) {
         authRepository.setVoiceOfUserEnabled(enabled)
         chatRepository.setVoiceOfUserEnabled(enabled)

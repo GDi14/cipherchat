@@ -59,7 +59,7 @@ class SignalProtocolManager(
     private val securePrefs: SecurePreferencesManager
 ) {
     val store: KeystoreSignalProtocolStore
-    val localUserId: String = securePrefs.getOrCreateUserId()
+    val localUserId: String get() = securePrefs.getOrCreateUserId()
     val localRegistrationId: Int
     val localIdentityKeyPair: IdentityKeyPair
 

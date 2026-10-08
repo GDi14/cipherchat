@@ -1,25 +1,40 @@
 package com.example.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -66,6 +81,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
@@ -88,11 +104,15 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
@@ -104,6 +124,8 @@ import coil.compose.AsyncImage
 import com.example.data.local.ConversationEntity
 import com.example.data.local.FriendRequestEntity
 import com.example.data.local.ProfileEntity
+import com.example.utils.AppUpdater
+import kotlinx.coroutines.launch
 import com.example.ui.components.AppNavigationBar
 import com.example.ui.components.AppNavigationDestination
 import com.example.ui.components.AppNavigationRail
@@ -121,20 +143,25 @@ import java.util.Locale
 @Composable
 fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, onNavigateToNewGroup: () -> Unit,
                onOpenAddFriends: () -> Unit, onOpenNotifications: () -> Unit,
-               onOpenAppSettings: () -> Unit, onOpenProfileSettings: () -> Unit) {
+               onOpenSettings: () -> Unit, onOpenProfile: (String) -> Unit = {}) {
     val state by viewModel.uiState.collectAsState()
     val conversations by viewModel.conversations.collectAsState()
     val friends by viewModel.friends.collectAsState()
     val requests by viewModel.pendingRequests.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     var fabOpen by remember { mutableStateOf(false) }
-    var chatSearchQuery by remember { mutableStateOf("") }
+    var pageSearchQuery by remember { mutableStateOf("") }
     val wide = LocalConfiguration.current.screenWidthDp >= 600
-    val destinations = listOf(
-        AppNavigationDestination("Chats", Icons.AutoMirrored.Filled.Chat, Icons.AutoMirrored.Outlined.Chat, conversations.sumOf { it.unreadCount }, "tab_chats"),
-        AppNavigationDestination("Groups", Icons.Default.GroupAdd, Icons.Outlined.GroupAdd, 0, "tab_groups"),
-        AppNavigationDestination("Calls", Icons.Default.Call, Icons.Outlined.Call, 0, "tab_calls")
-    )
+    val unreadCount = remember(conversations) { conversations.sumOf { it.unreadCount } }
+    val directConversations = remember(conversations) { conversations.filter { it.type == "direct" } }
+    val groupConversations = remember(conversations) { conversations.filter { it.type == "group" } }
+    val destinations = remember(unreadCount) {
+        listOf(
+            AppNavigationDestination("Chats", Icons.AutoMirrored.Filled.Chat, Icons.AutoMirrored.Outlined.Chat, unreadCount, "tab_chats"),
+            AppNavigationDestination("Groups", Icons.Default.GroupAdd, Icons.Outlined.GroupAdd, 0, "tab_groups"),
+            AppNavigationDestination("Calls", Icons.Default.Call, Icons.Outlined.Call, 0, "tab_calls")
+        )
+    }
 
     LaunchedEffect(state.errorMessage) {
         state.errorMessage?.let { snackbar.showSnackbar(it); viewModel.clearError() }
@@ -142,39 +169,53 @@ fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, o
     LaunchedEffect(state.statusMessage) {
         state.statusMessage?.let { snackbar.showSnackbar(it); viewModel.clearStatus() }
     }
+    LaunchedEffect(state.selectedTab) { pageSearchQuery = "" }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.surface,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            Surface(color = MaterialTheme.colorScheme.surface) {
-                Column {
-                    TopAppBar(
-                        title = {
-                            Text("Cipher Chat", style = MaterialTheme.typography.titleLarge)
-                        },
-                        actions = {
-                            IconButton(onClick = onOpenNotifications, modifier = Modifier.testTag("notifications_action")) {
-                                androidx.compose.material3.BadgedBox(badge = { if (requests.isNotEmpty()) Badge { Text("${requests.size}") } }) {
-                                    Icon(Icons.Default.Notifications, contentDescription = "Notifications")
-                                }
-                            }
-                            Spacer(Modifier.width(8.dp))
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
-                    )
-                    if (state.selectedTab == 0) {
-                        Box(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp)) {
-                            OutlinedTextField(
-                                value = chatSearchQuery,
-                                onValueChange = { chatSearchQuery = it },
-                                placeholder = { Text("Search people or messages") },
-                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                                singleLine = true,
-                                shape = CircleShape,
-                                modifier = Modifier.fillMaxWidth().height(56.dp).testTag("chat_search_input")
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                modifier = Modifier.windowInsetsPadding(WindowInsets.statusBars)
+            ) {
+                Column(Modifier.widthIn(max = 1040.dp).fillMaxWidth().padding(horizontal = 20.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth().height(88.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("CIPHER CHAT  ·  PRIVATE BY DESIGN", style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary)
+                            Text(
+                                when (state.selectedTab) { 1 -> "Your groups"; 2 -> "Calls"; else -> "Messages" },
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
+                        IconButton(onClick = onOpenNotifications, modifier = Modifier.testTag("notifications_action")) {
+                            androidx.compose.material3.BadgedBox(badge = { if (requests.isNotEmpty()) Badge { Text("${requests.size}") } }) {
+                                Icon(Icons.Default.Notifications, contentDescription = "Notifications")
+                            }
+                        }
+                        IconButton(onClick = onOpenSettings, modifier = Modifier.testTag("settings_action")) {
+                            Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        }
+                    }
+                    Box(Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
+                        OutlinedTextField(
+                            value = pageSearchQuery,
+                            onValueChange = { pageSearchQuery = it },
+                            placeholder = { Text(when (state.selectedTab) {
+                                1 -> "Search groups"
+                                2 -> "Search calls"
+                                else -> "Search people or messages"
+                            }) },
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                            singleLine = true,
+                            shape = MaterialTheme.shapes.large,
+                            modifier = Modifier.fillMaxWidth().height(58.dp).testTag("chat_search_input")
+                        )
                     }
                 }
             }
@@ -189,8 +230,6 @@ fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, o
                     onDismiss = { fabOpen = false },
                     items = listOf(
                         FabMenuItem("new_group", "Create a group", Icons.Default.GroupAdd, "fab_item_new_group", onNavigateToNewGroup),
-                        FabMenuItem("app_settings", "App settings", Icons.Default.Settings, "fab_item_app_settings", onOpenAppSettings),
-                        FabMenuItem("profile_settings", "Profile settings", Icons.Default.Person, "fab_item_profile_settings", onOpenProfileSettings),
                         FabMenuItem("add_friend", "Add friends", Icons.Default.PersonAdd, "fab_item_add_friends", onOpenAddFriends)
                     )
                 )
@@ -201,17 +240,31 @@ fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, o
             Box(Modifier.weight(1f).fillMaxSize().widthIn(max = 1040.dp), contentAlignment = Alignment.TopCenter) {
                 AnimatedContent(
                     targetState = state.selectedTab,
-                    transitionSpec = { fadeIn() togetherWith fadeOut() },
+                    transitionSpec = {
+                        val direction = if (targetState > initialState) 1 else -1
+                        (slideInHorizontally(
+                            animationSpec = tween(240, easing = FastOutSlowInEasing),
+                            initialOffsetX = { width -> direction * width / 5 }
+                        ) + fadeIn(animationSpec = tween(180))) togetherWith
+                            (slideOutHorizontally(
+                                animationSpec = tween(200, easing = FastOutSlowInEasing),
+                                targetOffsetX = { width -> -direction * width / 6 }
+                            ) + fadeOut(animationSpec = tween(140)))
+                    },
                     label = "home_destination"
                 ) { tab ->
                     when (tab) {
-                        1 -> M3ChatsTab(conversations.filter { it.type == "group" }, onOpenConversation, onNavigateToNewGroup,
-                            state.isSyncing, viewModel::sync, scopeKey = "groups")
-                        2 -> M3CallsTab()
-                        else -> M3ChatsTab(conversations.filter { it.type == "direct" }, onOpenConversation, onNavigateToNewGroup,
+                        1 -> M3ChatsTab(groupConversations, onOpenConversation, onNavigateToNewGroup,
+                            state.isSyncing, viewModel::sync, scopeKey = "groups", searchQuery = pageSearchQuery,
+                            onSearchQueryChange = { pageSearchQuery = it }, showSearchField = false, onOpenProfile = onOpenProfile)
+                        2 -> M3CallsTab(searchQuery = pageSearchQuery)
+                        else -> M3ChatsTab(directConversations, onOpenConversation, onNavigateToNewGroup,
                             state.isSyncing, viewModel::sync, friends, onOpenAddFriends,
-                            state.favoriteFriendIds, scopeKey = "chats", searchQuery = chatSearchQuery,
-                            onSearchQueryChange = { chatSearchQuery = it }, showSearchField = false)
+                            state.favoriteFriendIds, scopeKey = "chats", searchQuery = pageSearchQuery,
+                            onSearchQueryChange = { pageSearchQuery = it }, showSearchField = false, onOpenProfile = onOpenProfile,
+                            onOpenConversationWithFriend = { friend ->
+                                viewModel.openConversationWithFriend(friend, onOpenConversation)
+                            })
                     }
                 }
             }
@@ -231,7 +284,8 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                friends: List<ProfileEntity> = emptyList(), onAddFriends: (() -> Unit)? = null,
                favoriteFriendIds: Set<String> = emptySet(), scopeKey: String = "chats",
                searchQuery: String? = null, onSearchQueryChange: ((String) -> Unit)? = null,
-               showSearchField: Boolean = true) {
+               showSearchField: Boolean = true, onOpenProfile: (String) -> Unit = {},
+               onOpenConversationWithFriend: (ProfileEntity) -> Unit = {}) {
     var localQuery by remember(scopeKey) { mutableStateOf("") }
     val query = searchQuery ?: localQuery
     val updateQuery: (String) -> Unit = onSearchQueryChange ?: { localQuery = it }
@@ -258,8 +312,8 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
                 LazyColumn(
                     modifier = Modifier.widthIn(max = 980.dp).fillMaxSize(),
-                    contentPadding = PaddingValues(start = horizontalMargin, end = horizontalMargin, top = 16.dp, bottom = 96.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    contentPadding = PaddingValues(start = horizontalMargin, end = horizontalMargin, top = 20.dp, bottom = 104.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
             if (showSearchField) {
                 item {
@@ -272,54 +326,70 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                     )
                 }
             }
-            if (scopeKey == "chats" && filter == 0 && query.isBlank()) {
-                item {
-                    Surface(
-                        shape = MaterialTheme.shapes.extraLarge,
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                        modifier = Modifier.fillMaxWidth()
+            if (scopeKey == "chats") {
+                item(key = "your_circle_card") {
+                    AnimatedVisibility(
+                        visible = filter == 0 && query.isBlank(),
+                        enter = expandVertically(
+                            expandFrom = Alignment.Top,
+                            animationSpec = tween(320, easing = FastOutSlowInEasing)
+                        ) + fadeIn(animationSpec = tween(180)),
+                        exit = fadeOut(animationSpec = tween(120)) + shrinkVertically(
+                            shrinkTowards = Alignment.Top,
+                            animationSpec = tween(240, easing = FastOutSlowInEasing)
+                        )
                     ) {
-                        Column(Modifier.padding(start = 20.dp, end = 16.dp, top = 20.dp, bottom = 16.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text("Your Circle", style = MaterialTheme.typography.titleLarge)
-                                }
-                                onAddFriends?.let {
-                                    androidx.compose.material3.FilledTonalIconButton(onClick = it) {
-                                        Icon(Icons.Default.PersonAdd, contentDescription = "Add friends")
+                        Surface(
+                            shape = MaterialTheme.shapes.extraLarge,
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(Modifier.padding(start = 22.dp, end = 18.dp, top = 22.dp, bottom = 18.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text("Your Circle", style = MaterialTheme.typography.titleLarge)
+                                    }
+                                    onAddFriends?.let {
+                                        androidx.compose.material3.FilledTonalIconButton(onClick = it) {
+                                            Icon(Icons.Default.PersonAdd, contentDescription = "Add friends")
+                                        }
                                     }
                                 }
-                            }
-                            val favoriteFriends = friends.filter { it.id in favoriteFriendIds }
-                            if (favoriteFriends.isEmpty()) {
-                                Text(
-                                    "Favorite friends to keep them close here.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier.padding(top = 8.dp)
-                                )
-                            } else {
-                                Spacer(Modifier.height(14.dp))
-                                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    items(favoriteFriends, key = { it.id }) { friend ->
-                                        val conversation = conversations.firstOrNull { it.otherUserId == friend.id && it.type == "direct" }
-                                        Surface(
-                                            onClick = { conversation?.let { onOpenConversation(it.id) } ?: onRefresh() },
-                                            shape = CircleShape,
-                                            color = Color.Transparent,
-                                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            modifier = Modifier.width(96.dp).testTag("circle_friend_${friend.id}")
-                                        ) {
-                                            Column(
-                                                Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
-                                                horizontalAlignment = Alignment.CenterHorizontally,
-                                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                                val favoriteFriends = friends.filter { it.id in favoriteFriendIds }
+                                if (favoriteFriends.isEmpty()) {
+                                    Text(
+                                        "Favorite friends to keep them close here.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.padding(top = 8.dp)
+                                    )
+                                } else {
+                                    Spacer(Modifier.height(14.dp))
+                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        items(favoriteFriends, key = { it.id }) { friend ->
+                                            val conversation = conversations.firstOrNull { it.otherUserId == friend.id && it.type == "direct" }
+                                            Surface(
+                                                onClick = {
+                                                    conversation?.let { onOpenConversation(it.id) }
+                                                        ?: onOpenConversationWithFriend(friend)
+                                                },
+                                                shape = CircleShape,
+                                                color = Color.Transparent,
+                                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                modifier = Modifier.width(96.dp).testTag("circle_friend_${friend.id}")
                                             ) {
-                                                ExpressiveAvatar(friend.displayName, friend.avatarPath, 56.dp)
-                                                Text(friend.displayName, style = MaterialTheme.typography.labelSmall,
-                                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                Column(
+                                                    Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
+                                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    ExpressiveAvatar(friend.displayName, friend.avatarPath, 56.dp,
+                                                        modifier = Modifier.clickable { onOpenProfile(friend.id) })
+                                                    Text(friend.displayName, style = MaterialTheme.typography.labelSmall,
+                                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                }
                                             }
                                         }
                                     }
@@ -370,11 +440,16 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                         onClick = { onOpenConversation(conversation.id) },
                         shape = MaterialTheme.shapes.extraLarge,
                         color = if (conversation.unreadCount > 0) MaterialTheme.colorScheme.secondaryContainer
-                        else MaterialTheme.colorScheme.surfaceContainerLow,
+                        else MaterialTheme.colorScheme.surface,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         ListItem(
-                            leadingContent = { ExpressiveAvatar(conversation.title ?: "Chat", size = 56.dp) },
+                            leadingContent = {
+                                ExpressiveAvatar(conversation.title ?: "Chat", size = 56.dp,
+                                    modifier = Modifier.clickable(enabled = conversation.type == "direct" && conversation.otherUserId != null) {
+                                        conversation.otherUserId?.let(onOpenProfile)
+                                    })
+                            },
                             headlineContent = {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text(conversation.title ?: "Encrypted conversation", style = MaterialTheme.typography.titleMedium,
@@ -437,7 +512,8 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun M3FriendsTab(viewModel: HomeViewModel, friends: List<ProfileEntity>, pendingRequests: List<FriendRequestEntity>,
-                 onBack: (() -> Unit)? = null, onOpenConversationWithFriend: (ProfileEntity) -> Unit) {
+                 onBack: (() -> Unit)? = null, onOpenProfile: (String) -> Unit = {},
+                 onOpenConversationWithFriend: (ProfileEntity) -> Unit) {
     val state by viewModel.uiState.collectAsState()
     Scaffold(
         topBar = {
@@ -457,16 +533,17 @@ fun M3FriendsTab(viewModel: HomeViewModel, friends: List<ProfileEntity>, pending
     Box(Modifier.fillMaxSize().padding(pagePadding), contentAlignment = Alignment.TopCenter) {
     Column(Modifier.widthIn(max = 900.dp).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Find your people", style = MaterialTheme.typography.titleLarge)
-            Text("Connect by tag and keep every conversation private.", style = MaterialTheme.typography.bodyMedium,
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("YOUR PEOPLE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            Text("Find your people", style = MaterialTheme.typography.headlineSmall)
+            Text("Connect by tag and keep every conversation private.", style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Card(shape = MaterialTheme.shapes.extraLarge,
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
             modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Add a friend", style = MaterialTheme.typography.titleLarge)
+            Text("Add a friend", style = MaterialTheme.typography.titleLarge)
                 Text("Enter someone's unique tag to find them.", style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 OutlinedTextField(
@@ -484,7 +561,8 @@ fun M3FriendsTab(viewModel: HomeViewModel, friends: List<ProfileEntity>, pending
                 state.searchResult?.let { result ->
                     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
                         ListItem(
-                            leadingContent = { ExpressiveAvatar(result.displayName, result.avatarPath, 48.dp) },
+                            leadingContent = { ExpressiveAvatar(result.displayName, result.avatarPath, 48.dp,
+                                modifier = Modifier.clickable { onOpenProfile(result.id) }) },
                             headlineContent = { Text(result.displayName) }, supportingContent = { Text("@${result.tag}") },
                             trailingContent = { Button(onClick = { viewModel.sendFriendRequest(result) }, modifier = Modifier.testTag("add_friend_button")) {
                                 Icon(Icons.Default.PersonAdd, null); Spacer(Modifier.width(6.dp)); Text("Add")
@@ -523,7 +601,8 @@ fun M3FriendsTab(viewModel: HomeViewModel, friends: List<ProfileEntity>, pending
                 Surface(onClick = { onOpenConversationWithFriend(friend) }, shape = MaterialTheme.shapes.extraLarge,
                     color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
                     ListItem(
-                        leadingContent = { ExpressiveAvatar(friend.displayName, friend.avatarPath, 52.dp) },
+                        leadingContent = { ExpressiveAvatar(friend.displayName, friend.avatarPath, 52.dp,
+                            modifier = Modifier.clickable { onOpenProfile(friend.id) }) },
                         headlineContent = { Text(friend.displayName, style = MaterialTheme.typography.titleMedium) },
                         supportingContent = { Text("@${friend.tag}") },
                         trailingContent = {
@@ -564,7 +643,7 @@ fun M3FriendsTab(viewModel: HomeViewModel, friends: List<ProfileEntity>, pending
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun M3CallsTab() {
+fun M3CallsTab(searchQuery: String = "") {
     Surface(
         modifier = Modifier.fillMaxSize(),
         shape = ExpressiveTopSurfaceShape,
@@ -574,8 +653,11 @@ fun M3CallsTab() {
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Call history", style = MaterialTheme.typography.titleLarge)
-            ExpressiveEmptyState("No calls yet", "Your recent calls will appear here.",
+            Text("RECENT ACTIVITY", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            Text("Call history", style = MaterialTheme.typography.headlineSmall)
+            ExpressiveEmptyState(
+                if (searchQuery.isBlank()) "No calls yet" else "No matching calls",
+                if (searchQuery.isBlank()) "Your recent calls will appear here." else "Try another search.",
                 icon = { Icon(Icons.Default.Call, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(40.dp)) })
         }
     }
@@ -598,8 +680,10 @@ fun M3NotificationsPage(viewModel: HomeViewModel, requests: List<FriendRequestEn
         }
     ) { pagePadding ->
     Box(Modifier.fillMaxSize().padding(pagePadding), contentAlignment = Alignment.TopCenter) {
-    Column(Modifier.widthIn(max = 900.dp).fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+    Column(Modifier.widthIn(max = 900.dp).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("YOUR INBOX", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+        Text("Notifications", style = MaterialTheme.typography.headlineSmall)
         if (requests.isEmpty()) ExpressiveEmptyState("You're all caught up", "New friend requests will appear here.",
             icon = { Icon(Icons.Default.Notifications, null, tint = MaterialTheme.colorScheme.primary) })
         requests.forEach { request ->
@@ -621,8 +705,89 @@ fun M3NotificationsPage(viewModel: HomeViewModel, requests: List<FriendRequestEn
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
+fun M3SettingsPage(
+    onBack: () -> Unit,
+    onOpenProfileSettings: () -> Unit,
+    onOpenAppSettings: () -> Unit
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                navigationIcon = {
+                    IconButton(onClick = onBack, modifier = Modifier.testTag("back_button")) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                title = { Text("Settings") },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+            )
+        }
+    ) { pagePadding ->
+        Box(Modifier.fillMaxSize().padding(pagePadding), contentAlignment = Alignment.TopCenter) {
+            Column(
+                Modifier.widthIn(max = 900.dp).fillMaxSize().verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("MAKE IT YOURS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                Text("Settings", style = MaterialTheme.typography.headlineSmall)
+                Text("Account", style = MaterialTheme.typography.titleLarge)
+                Surface(
+                    onClick = onOpenProfileSettings,
+                    shape = MaterialTheme.shapes.extraLarge,
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    modifier = Modifier.fillMaxWidth().testTag("open_profile_settings")
+                ) {
+                    ListItem(
+                        leadingContent = { Icon(Icons.Default.Person, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                        headlineContent = { Text("Profile settings") },
+                        supportingContent = { Text("Update your name, tag, and profile photo") },
+                        trailingContent = { Text("Open", color = MaterialTheme.colorScheme.primary) },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                    )
+                }
+
+                Text("Preferences", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 8.dp))
+                Surface(
+                    onClick = onOpenAppSettings,
+                    shape = MaterialTheme.shapes.extraLarge,
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    modifier = Modifier.fillMaxWidth().testTag("open_app_settings")
+                ) {
+                    ListItem(
+                        leadingContent = { Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                        headlineContent = { Text("App settings") },
+                        supportingContent = { Text("Privacy, sync, and appearance options") },
+                        trailingContent = { Text("Open", color = MaterialTheme.colorScheme.primary) },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
 fun M3AppSettingsPage(viewModel: HomeViewModel, onBack: () -> Unit) {
     val state by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    var notificationsAllowed by remember {
+        mutableStateOf(
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { notificationsAllowed = it }
+    val scope = rememberCoroutineScope()
+    var updateMessage by remember { mutableStateOf("Check GitHub for the latest signed alpha APK.") }
+    var release by remember { mutableStateOf<AppUpdater.ReleaseInfo?>(null) }
+    var isCheckingUpdate by remember { mutableStateOf(false) }
+    var isDownloadingUpdate by remember { mutableStateOf(false) }
+    var downloadProgress by remember { mutableIntStateOf(0) }
+    var showReleaseNotes by remember { mutableStateOf(false) }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -637,10 +802,90 @@ fun M3AppSettingsPage(viewModel: HomeViewModel, onBack: () -> Unit) {
         }
     ) { pagePadding ->
     Box(Modifier.fillMaxSize().padding(pagePadding), contentAlignment = Alignment.TopCenter) {
-    Column(Modifier.widthIn(max = 900.dp).fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(Modifier.widthIn(max = 900.dp).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text("PREFERENCES", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+        Text("App settings", style = MaterialTheme.typography.headlineSmall)
         Text("Privacy and sync", style = MaterialTheme.typography.titleLarge)
         ListItem(leadingContent = { Icon(Icons.Default.Security, null) }, headlineContent = { Text("End-to-end encryption") },
             supportingContent = { Text("Messages are encrypted on this device") })
+        Text("Notifications", style = MaterialTheme.typography.titleLarge)
+        ListItem(
+            leadingContent = { Icon(Icons.Default.Notifications, contentDescription = null) },
+            headlineContent = { Text(if (notificationsAllowed) "Message alerts enabled" else "Message alerts disabled") },
+            supportingContent = { Text("Notifications use generic text so encrypted message content stays private.") },
+            trailingContent = {
+                FilledTonalButton(
+                    enabled = !notificationsAllowed && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU,
+                    onClick = { notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
+                ) { Text(if (notificationsAllowed) "Enabled" else "Enable") }
+            }
+        )
+        Text("Application updates", style = MaterialTheme.typography.titleLarge)
+        OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(updateMessage, style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                release?.let { latest ->
+                    TextButton(onClick = { showReleaseNotes = true }) {
+                        Text("View release notes · ${latest.tagName}")
+                    }
+                }
+                if (isDownloadingUpdate) {
+                    LinearProgressIndicator(progress = { downloadProgress / 100f }, modifier = Modifier.fillMaxWidth())
+                    Text("Downloading update · $downloadProgress%", style = MaterialTheme.typography.labelLarge)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(
+                        enabled = !isCheckingUpdate && !isDownloadingUpdate,
+                        onClick = {
+                            isCheckingUpdate = true
+                            updateMessage = "Checking for updates…"
+                            scope.launch {
+                                val found = AppUpdater.checkForUpdate(context)
+                                isCheckingUpdate = false
+                                release = found
+                                updateMessage = when {
+                                    found == null -> "Couldn't find a release APK. Check your connection and try again."
+                                    AppUpdater.isNewerRelease(found.tagName, AppUpdater.getCurrentVersionName(context)) ->
+                                        "Version ${found.tagName} is available. Review the release notes before installing."
+                                    else -> "You're up to date · ${AppUpdater.getCurrentVersionName(context)}"
+                                }
+                            }
+                        }
+                    ) {
+                        if (isCheckingUpdate) ExpressiveContainedLoadingIndicator(Modifier.size(20.dp), size = 16.dp)
+                        else Text("Check for updates")
+                    }
+                    val available = release?.takeIf {
+                        AppUpdater.isNewerRelease(it.tagName, AppUpdater.getCurrentVersionName(context))
+                    }
+                    available?.let { latest ->
+                        FilledTonalButton(
+                            enabled = !isDownloadingUpdate,
+                            onClick = {
+                                isDownloadingUpdate = true
+                                downloadProgress = 0
+                                scope.launch {
+                                    AppUpdater.downloadAndInstall(
+                                        context = context,
+                                        apkUrl = latest.apkUrl,
+                                        onProgress = { downloadProgress = it },
+                                        onError = { message ->
+                                            isDownloadingUpdate = false
+                                            updateMessage = "Update download failed: $message"
+                                        }
+                                    )
+                                    if (isDownloadingUpdate) {
+                                        isDownloadingUpdate = false
+                                        updateMessage = "Android's package installer was opened. Follow its prompts to finish updating."
+                                    }
+                                }
+                            }
+                        ) { Text("Install ${latest.tagName}") }
+                    }
+                }
+            }
+        }
         ListItem(leadingContent = { Icon(Icons.Default.CloudDone, null) }, headlineContent = { Text("Cloud relay") },
             supportingContent = { Text(if (viewModel.supabaseProvider.isConfigured) "Connected" else "Not configured") },
             trailingContent = { FilledTonalButton(onClick = { viewModel.showSupabaseDialog(true) }) { Text("Configure") } })
@@ -656,6 +901,23 @@ fun M3AppSettingsPage(viewModel: HomeViewModel, onBack: () -> Unit) {
     }
     if (state.showSupabaseDialog) M3SupabaseAlertDialog(state.supabaseUrlInput, state.supabaseKeyInput,
         { viewModel.showSupabaseDialog(false) }, viewModel::saveSupabaseConfig)
+    if (showReleaseNotes) {
+        val latest = release
+        if (latest != null) {
+            AlertDialog(
+                onDismissRequest = { showReleaseNotes = false },
+                title = { Text("Release ${latest.tagName}") },
+                text = {
+                    Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                        Text(latest.releaseNotes.ifBlank { "No release notes were provided." })
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showReleaseNotes = false }) { Text("Done") }
+                }
+            )
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -685,8 +947,12 @@ fun M3ProfileTab(viewModel: HomeViewModel, onBack: (() -> Unit)? = null) {
         }
     ) { pagePadding ->
     Box(Modifier.fillMaxSize().padding(pagePadding), contentAlignment = Alignment.TopCenter) {
-    Column(Modifier.widthIn(max = 900.dp).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
+    Column(Modifier.widthIn(max = 900.dp).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("ACCOUNT", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            Text("Your profile", style = MaterialTheme.typography.headlineSmall)
+        }
         Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.primaryContainer,
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {

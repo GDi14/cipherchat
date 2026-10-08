@@ -29,15 +29,15 @@ private val ExpressiveDarkColorScheme = darkColorScheme(
     errorContainer = ExpressiveDarkErrorContainer,
     onErrorContainer = ExpressiveDarkOnErrorContainer,
     background = ExpressiveDarkBackground,
-    onBackground = Color(0xFFE8E7F0),
+    onBackground = Color(0xFFF6EFF2),
     surface = ExpressiveDarkSurface,
-    onSurface = Color(0xFFE8E7F0),
+    onSurface = Color(0xFFF6EFF2),
     surfaceVariant = ExpressiveDarkSurfaceContainerHigh,
-    onSurfaceVariant = Color(0xFFC4C2D0),
+    onSurfaceVariant = Color(0xFFE4C9EA),
     outline = ExpressiveDarkOutline,
     outlineVariant = ExpressiveDarkOutlineVariant,
-    surfaceContainerLowest = Color(0xFF0B0B12),
-    surfaceContainerLow = Color(0xFF191923),
+    surfaceContainerLowest = BrandBlack,
+    surfaceContainerLow = PageDarkSurfaceLow,
     surfaceContainer = ExpressiveDarkSurfaceContainer,
     surfaceContainerHigh = ExpressiveDarkSurfaceContainerHigh,
     surfaceContainerHighest = ExpressiveDarkSurfaceContainerHighest
@@ -61,15 +61,15 @@ private val ExpressiveLightColorScheme = lightColorScheme(
     errorContainer = ExpressiveLightErrorContainer,
     onErrorContainer = ExpressiveLightOnErrorContainer,
     background = ExpressiveLightBackground,
-    onBackground = Color(0xFF1B1A24),
+    onBackground = BrandBlack,
     surface = ExpressiveLightSurface,
-    onSurface = Color(0xFF1B1A24),
+    onSurface = BrandBlack,
     surfaceVariant = ExpressiveLightSurfaceContainer,
-    onSurfaceVariant = Color(0xFF494755),
+    onSurfaceVariant = Color(0xFF55435C),
     outline = ExpressiveLightOutline,
     outlineVariant = ExpressiveLightOutlineVariant,
     surfaceContainerLowest = Color(0xFFFFFFFF),
-    surfaceContainerLow = Color(0xFFF5F2FC),
+    surfaceContainerLow = PageLightSurfaceLow,
     surfaceContainer = ExpressiveLightSurfaceContainer,
     surfaceContainerHigh = ExpressiveLightSurfaceContainerHigh,
     surfaceContainerHighest = ExpressiveLightSurfaceContainerHighest
@@ -92,6 +92,88 @@ fun MyApplicationTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
+        typography = ExpressiveTypography,
+        shapes = ExpressiveShapes,
+        content = content
+    )
+}
+
+/** Lavender/plum Material 3 theme used by app pages outside the chat surface. */
+@Composable
+fun ExpressivePagesTheme(content: @Composable () -> Unit) {
+    val dark = isSystemInDarkTheme()
+    val colors = if (dark) {
+        darkColorScheme(
+            primary = PageDarkPrimary,
+            onPrimary = PageDarkOnPrimary,
+            primaryContainer = PageDarkPrimaryContainer,
+            onPrimaryContainer = PageDarkOnPrimaryContainer,
+            secondary = PageDarkSecondary,
+            onSecondary = PageDarkOnSecondary,
+            secondaryContainer = PageDarkSecondaryContainer,
+            onSecondaryContainer = PageDarkOnSecondaryContainer,
+            tertiary = PageDarkTertiary,
+            onTertiary = PageDarkOnTertiary,
+            tertiaryContainer = PageDarkTertiaryContainer,
+            onTertiaryContainer = PageDarkOnTertiaryContainer,
+            error = ExpressiveDarkError,
+            onError = ExpressiveDarkOnError,
+            errorContainer = ExpressiveDarkErrorContainer,
+            onErrorContainer = ExpressiveDarkOnErrorContainer,
+            background = PageDarkBackground,
+            onBackground = Color(0xFFFFF5FF),
+            surface = PageDarkSurface,
+            onSurface = Color(0xFFFFF5FF),
+            surfaceVariant = PageDarkSurfaceHigh,
+            onSurfaceVariant = Color(0xFFE4C9EA),
+            outline = PageDarkOutline,
+            outlineVariant = PageDarkOutlineVariant,
+            surfaceContainerLowest = Color(0xFF110316),
+            surfaceContainerLow = PageDarkSurfaceLow,
+            surfaceContainer = PageDarkSurface,
+            surfaceContainerHigh = PageDarkSurfaceHigh,
+            surfaceContainerHighest = Color(0xFF4B2056),
+            surfaceDim = Color(0xFF19071F),
+            surfaceBright = Color(0xFF493150)
+        )
+    } else {
+        lightColorScheme(
+            primary = PageLightPrimary,
+            onPrimary = PageLightOnPrimary,
+            primaryContainer = PageLightPrimaryContainer,
+            onPrimaryContainer = PageLightOnPrimaryContainer,
+            secondary = PageLightSecondary,
+            onSecondary = PageLightOnSecondary,
+            secondaryContainer = PageLightSecondaryContainer,
+            onSecondaryContainer = PageLightOnSecondaryContainer,
+            tertiary = PageLightTertiary,
+            onTertiary = PageLightOnTertiary,
+            tertiaryContainer = PageLightTertiaryContainer,
+            onTertiaryContainer = PageLightOnTertiaryContainer,
+            error = ExpressiveLightError,
+            onError = ExpressiveLightOnError,
+            errorContainer = ExpressiveLightErrorContainer,
+            onErrorContainer = ExpressiveLightOnErrorContainer,
+            background = PageLightBackground,
+            onBackground = BrandBlack,
+            surface = PageLightSurface,
+            onSurface = BrandBlack,
+            surfaceVariant = PageLightSurfaceLow,
+            onSurfaceVariant = Color(0xFF55435C),
+            outline = PageLightOutline,
+            outlineVariant = PageLightOutlineVariant,
+            surfaceContainerLowest = Color.White,
+            surfaceContainerLow = PageLightSurfaceLow,
+            surfaceContainer = Color(0xFFF0D9F7),
+            surfaceContainerHigh = PageLightSurfaceHigh,
+            surfaceContainerHighest = Color(0xFFE4C2EE),
+            surfaceDim = Color(0xFFE8D5EC),
+            surfaceBright = Color(0xFFFFF7FF)
+        )
+    }
+
+    MaterialTheme(
+        colorScheme = colors,
         typography = ExpressiveTypography,
         shapes = ExpressiveShapes,
         content = content

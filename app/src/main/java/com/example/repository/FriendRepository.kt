@@ -21,13 +21,97 @@ class FriendRepository(
     private val supabaseProvider: SupabaseClientProvider,
     private val database: AppDatabase
 ) {
-    val myUserId: String = securePrefs.getOrCreateUserId()
+    val myUserId: String get() = securePrefs.getOrCreateUserId()
 
     fun getAcceptedFriends(): Flow<List<ProfileEntity>> = database.profileDao().getFriends()
     fun getPendingIncomingRequests(): Flow<List<FriendRequestEntity>> =
         database.friendRequestDao().getPendingIncomingRequests()
     fun getAllRequests(): Flow<List<FriendRequestEntity>> =
         database.friendRequestDao().getAllRequests()
+
+    /** Returns the existing direct chat or creates one for an accepted friend. */
+    suspend fun getOrCreateDirectConversation(friend: ProfileEntity): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            require(friend.id != myUserId) { "You can't start a chat with your own profile." }
+            database.conversationDao().getDirectConversation(friend.id)?.let {
+                return@withContext Result.success(it.id)
+            }
+
+            if (supabaseProvider.isConfigured) {
+                val client = supabaseProvider.getClient()
+                val myMemberships = client.postgrest["conversation_members"].select {
+                    filter { eq("user_id", myUserId) }
+                }.decodeList<ConversationMemberDto>().mapTo(HashSet()) { it.conversationId }
+                val friendMemberships = client.postgrest["conversation_members"].select {
+                    filter { eq("user_id", friend.id) }
+                }.decodeList<ConversationMemberDto>().mapTo(HashSet()) { it.conversationId }
+                for (existingId in myMemberships intersect friendMemberships) {
+                    val remote = client.postgrest["conversations"].select {
+                        filter { eq("id", existingId) }
+                    }.decodeList<ConversationDto>().firstOrNull() ?: continue
+                    if (remote.type != "direct") continue
+                    database.conversationDao().insertOrUpdate(
+                        ConversationEntity(
+                            id = existingId,
+                            type = "direct",
+                            title = friend.displayName,
+                            otherUserId = friend.id,
+                            otherUserTag = friend.tag,
+                            lastMessageText = "Messages are end-to-end encrypted",
+                            lastMessageTimestamp = System.currentTimeMillis()
+                        )
+                    )
+                    return@withContext Result.success(existingId)
+                }
+            }
+
+            val conversationId = UUID.randomUUID().toString()
+            if (supabaseProvider.isConfigured) {
+                val client = supabaseProvider.getClient()
+                client.postgrest["conversations"].insert(
+                    ConversationDto(id = conversationId, type = "direct", createdBy = myUserId)
+                )
+                client.postgrest["conversation_members"].insert(
+                    listOf(
+                        ConversationMemberDto(conversationId = conversationId, userId = myUserId),
+                        ConversationMemberDto(conversationId = conversationId, userId = friend.id)
+                    )
+                )
+            }
+
+            database.conversationDao().insertOrUpdate(
+                ConversationEntity(
+                    id = conversationId,
+                    type = "direct",
+                    title = friend.displayName,
+                    otherUserId = friend.id,
+                    otherUserTag = friend.tag,
+                    lastMessageText = "Messages are end-to-end encrypted",
+                    lastMessageTimestamp = System.currentTimeMillis()
+                )
+            )
+            Result.success(conversationId)
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
+    suspend fun getProfileById(userId: String): ProfileEntity? = withContext(Dispatchers.IO) {
+        database.profileDao().getProfileById(userId)?.let { return@withContext it }
+        if (!supabaseProvider.isConfigured) return@withContext null
+        runCatching {
+            val profile = supabaseProvider.getClient().postgrest["profiles"].select {
+                filter { eq("id", userId) }
+            }.decodeList<ProfileDto>().firstOrNull() ?: return@runCatching null
+            ProfileEntity(
+                id = profile.id,
+                displayName = profile.displayName,
+                tag = profile.tag,
+                avatarPath = profile.avatarPath,
+                isFriend = false
+            ).also { database.profileDao().insertOrUpdate(it) }
+        }.getOrNull()
+    }
 
     /**
      * Search user by exact tag.
@@ -188,7 +272,7 @@ class FriendRepository(
                 if (supabaseProvider.isConfigured) {
                     val client = supabaseProvider.getClient()
                     client.postgrest["conversations"].insert(
-                        ConversationDto(id = convId, type = "direct")
+                        ConversationDto(id = convId, type = "direct", createdBy = myUserId)
                     )
                     client.postgrest["conversation_members"].insert(
                         listOf(

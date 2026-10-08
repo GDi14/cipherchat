@@ -23,6 +23,8 @@ data class OnboardingUiState(
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
     val isRegistered: Boolean = false,
+    val isGoogleSignInInProgress: Boolean = false,
+    val isGoogleVerified: Boolean = false,
     val showSupabaseDialog: Boolean = false,
     val isSupabaseConfigured: Boolean = false,
     val supabaseUrlInput: String = "",
@@ -117,8 +119,47 @@ class OnboardingViewModel(
         _uiState.value = _uiState.value.copy(avatarUri = uri)
     }
 
+    fun signInWithGoogleIdToken(idToken: String) {
+        _uiState.value = _uiState.value.copy(
+            isGoogleSignInInProgress = true,
+            errorMessage = null
+        )
+        viewModelScope.launch {
+            authRepository.signInWithGoogleIdToken(idToken)
+                .onSuccess { hasLinkedProfile ->
+                    _uiState.value = _uiState.value.copy(
+                        isGoogleSignInInProgress = false,
+                        isGoogleVerified = true,
+                        isRegistered = hasLinkedProfile
+                    )
+                }
+                .onFailure { error ->
+                    _uiState.value = _uiState.value.copy(
+                        isGoogleSignInInProgress = false,
+                        isGoogleVerified = false,
+                        errorMessage = error.localizedMessage ?: "Google sign-in failed. Please try again."
+                    )
+                }
+        }
+    }
+
+    fun googleSignInError(message: String) {
+        _uiState.value = _uiState.value.copy(
+            isGoogleSignInInProgress = false,
+            errorMessage = message
+        )
+    }
+
+    fun googleSignInStarted() {
+        _uiState.value = _uiState.value.copy(isGoogleSignInInProgress = true, errorMessage = null)
+    }
+
     fun register() {
         val state = _uiState.value
+        if (!state.isGoogleVerified) {
+            _uiState.value = state.copy(errorMessage = "Continue with Google to verify your account first")
+            return
+        }
         val name = state.displayName.trim()
         val tag = state.tag.trim()
 

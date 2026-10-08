@@ -78,7 +78,7 @@ fun NewGroupScreen(viewModel: NewGroupViewModel, onBack: () -> Unit, onGroupCrea
                 },
                 title = {
                     Column {
-                        Text("NEW SPACE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                        Text("MAKE ROOM", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                         Text("Create a group", style = MaterialTheme.typography.titleLarge)
                     }
                 },
@@ -106,11 +106,11 @@ fun NewGroupScreen(viewModel: NewGroupViewModel, onBack: () -> Unit, onGroupCrea
         }
     ) { insets ->
         Box(Modifier.fillMaxSize().padding(insets), contentAlignment = Alignment.TopCenter) {
-            Column(Modifier.widthIn(max = 760.dp).fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            Column(Modifier.widthIn(max = 760.dp).fillMaxSize().padding(horizontal = 20.dp, vertical = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.primaryContainer,
                     contentColor = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.fillMaxWidth()) {
-                    Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically,
+                    Row(Modifier.padding(horizontal = 22.dp, vertical = 24.dp), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         Icon(Icons.Default.Group, null, Modifier.size(34.dp))
                         Column {
