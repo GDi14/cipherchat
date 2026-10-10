@@ -48,6 +48,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -65,7 +66,6 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.Badge
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -148,6 +148,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import com.example.data.local.MessageEntity
+import com.example.repository.FriendRepository
 import com.example.crypto.MessagePayloadCodec
 import com.example.ui.components.ExpressiveAvatar
 import com.example.ui.components.ExpressiveReceiptIcon
@@ -200,6 +201,7 @@ private fun Rect.relativeTo(origin: Offset) = Rect(
 @Composable
 fun ChatScreen(
     viewModel: ChatViewModel,
+    friendRepository: FriendRepository,
     onBack: () -> Unit,
     onOpenProfile: (String) -> Unit = {}
 ) {
@@ -222,8 +224,30 @@ fun ChatScreen(
     val context = LocalContext.current
     val density = androidx.compose.ui.platform.LocalDensity.current
     val uiState by viewModel.uiState.collectAsState()
+    val directUserId = uiState.conversation?.takeIf { it.type == "direct" }?.otherUserId
+    var headerAvatarPath by remember(directUserId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(directUserId) {
+        headerAvatarPath = directUserId?.let { id ->
+            friendRepository.getRemoteProfileById(id)?.avatarPath
+                ?: friendRepository.getProfileById(id)?.avatarPath
+        }
+    }
     val messagesState = viewModel.messages.collectAsState()
     val messages by messagesState
+    val groupSenderIds = remember(messages, uiState.conversation?.type) {
+        if (uiState.conversation?.type == "group") messages.map { it.senderId }.distinct() else emptyList()
+    }
+    var groupSenderAvatarPaths by remember(viewModel.conversationId) { mutableStateOf<Map<String, String?>>(emptyMap()) }
+    LaunchedEffect(groupSenderIds) {
+        val missingIds = groupSenderIds.filterNot { it in groupSenderAvatarPaths }
+        if (missingIds.isNotEmpty()) {
+            val loaded = missingIds.associateWith { id ->
+                friendRepository.getRemoteProfileById(id)?.avatarPath
+                    ?: friendRepository.getProfileById(id)?.avatarPath
+            }
+            groupSenderAvatarPaths = groupSenderAvatarPaths + loaded
+        }
+    }
     val typingUsersMap by viewModel.typingUsers.collectAsState()
     val voiceOfUserEnabled by viewModel.voiceOfUserEnabled.collectAsState()
     val emphasisAnimationMessageIds by viewModel.emphasisAnimationMessageIds.collectAsState()
@@ -319,6 +343,10 @@ fun ChatScreen(
         contentWindowInsets = WindowInsets.statusBars,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
+            Surface(
+                shape = RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp),
+                color = Color.Black.copy(alpha = 0.48f)
+            ) {
             TopAppBar(
                 navigationIcon = {
                     IconButton(
@@ -337,7 +365,7 @@ fun ChatScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         val directUserId = uiState.conversation?.takeIf { it.type == "direct" }?.otherUserId
-                        ExpressiveAvatar(name = title, size = 44.dp,
+                        ExpressiveAvatar(name = title, avatarUrl = headerAvatarPath, size = 44.dp,
                             modifier = Modifier.clickable(enabled = directUserId != null) {
                                 directUserId?.let(onOpenProfile)
                             })
@@ -390,9 +418,11 @@ fun ChatScreen(
                     )
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Black.copy(alpha = 0.48f)
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = Color.Transparent
                 )
             )
+            }
         }
     ) { innerPadding ->
         Box(
@@ -440,6 +470,7 @@ fun ChatScreen(
                         } else {
                             "Friend"
                         },
+                        senderAvatarPath = groupSenderAvatarPaths[message.senderId],
                         onReply = { viewModel.setReplyingTo(message) },
                         onDelete = { viewModel.hideMessage(message) },
                         onPlayAudio = { viewModel.playAudio(message) },
@@ -499,7 +530,8 @@ fun ChatScreen(
 
             // M3 Tonal Surface Bottom Composer
             Surface(
-                color = Color.Transparent,
+                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .widthIn(max = 960.dp)
@@ -905,6 +937,7 @@ fun M3MessageItem(
     isOutgoing: Boolean,
     showSenderBadge: Boolean = false,
     senderLabel: String? = message.senderName,
+    senderAvatarPath: String? = null,
     onReply: () -> Unit,
     onDelete: () -> Unit,
     onPlayAudio: () -> Unit,
@@ -947,14 +980,14 @@ fun M3MessageItem(
         horizontalAlignment = if (isOutgoing) Alignment.End else Alignment.Start
     ) {
         if (showSenderBadge && !senderLabel.isNullOrBlank()) {
-            Badge(
-                containerColor = if (isOutgoing) MaterialTheme.colorScheme.primaryContainer
-                else MaterialTheme.colorScheme.tertiaryContainer,
-                contentColor = if (isOutgoing) MaterialTheme.colorScheme.onPrimaryContainer
-                else MaterialTheme.colorScheme.onTertiaryContainer,
-                modifier = Modifier.padding(bottom = 4.dp)
+            Row(
+                modifier = Modifier.padding(bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(senderLabel, style = MaterialTheme.typography.labelSmall)
+                ExpressiveAvatar(senderLabel, senderAvatarPath, size = 24.dp)
+                Text(senderLabel, style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         if (isOutgoing) {

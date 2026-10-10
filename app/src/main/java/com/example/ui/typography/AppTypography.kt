@@ -21,6 +21,12 @@ enum class ChatFontOption(
         styleDescription = "Modern Flexible Grotesque",
         resId = R.font.roboto_flex
     ),
+    GOOGLE_SANS_FLEX(
+        id = "google_sans_flex",
+        displayName = "Google Sans Flex",
+        styleDescription = "Expressive Variable Sans",
+        resId = R.font.google_sans_flex
+    ),
     FRAUNCES(
         id = "fraunces",
         displayName = "Fraunces",
@@ -40,27 +46,14 @@ enum class ChatFontOption(
         resId = R.font.syne
     );
 
+    @Suppress("UNUSED_PARAMETER")
     fun getFontFamily(
         weight: Int = 400,
         width: Float = 100f,
-        slant: Float = 0f
-    ): FontFamily {
-        return try {
-            FontFamily(
-                Font(
-                    resId = resId,
-                    weight = FontWeight(weight.coerceIn(100, 900)),
-                    variationSettings = FontVariation.Settings(
-                        FontVariation.weight(weight.coerceIn(100, 900)),
-                        FontVariation.width(width.coerceIn(25f, 151f)),
-                        FontVariation.slant(slant.coerceIn(-10f, 0f))
-                    )
-                )
-            )
-        } catch (e: Exception) {
-            FontFamily(Font(resId))
-        }
-    }
+        slant: Float = 0f,
+        grade: Int = 0,
+        opticalSize: Float = 14f
+    ): FontFamily = FontFamily(Font(resId, FontWeight.Normal))
 
     fun getEditorialDisplayFont(): FontFamily {
         return try {

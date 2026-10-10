@@ -69,6 +69,7 @@ data class FriendRequestEntity(
     val senderTag: String,
     val status: String, // pending, accepted, declined
     val isIncoming: Boolean,
+    val avatarPath: String? = null,
     val timestamp: Long = System.currentTimeMillis()
 )
 

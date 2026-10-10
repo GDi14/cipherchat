@@ -75,6 +75,21 @@ class SecurePreferencesManager(context: Context) {
         encryptedPrefs.edit().putBoolean(KEY_VOICE_OF_USER, enabled).apply()
     }
 
+    fun getProfileBackgroundColor(): String = encryptedPrefs.getString(KEY_PROFILE_BACKGROUND, "#C987FA") ?: "#C987FA"
+    fun setProfileBackgroundColor(value: String) { encryptedPrefs.edit().putString(KEY_PROFILE_BACKGROUND, value).apply() }
+    fun getProfileFontId(): String = encryptedPrefs.getString(KEY_PROFILE_FONT, "roboto_flex") ?: "roboto_flex"
+    fun setProfileFontId(value: String) { encryptedPrefs.edit().putString(KEY_PROFILE_FONT, value).apply() }
+    fun getProfileFontWidth(): Float = encryptedPrefs.getFloat(KEY_PROFILE_WIDTH, 100f)
+    fun setProfileFontWidth(value: Float) { encryptedPrefs.edit().putFloat(KEY_PROFILE_WIDTH, value).apply() }
+    fun getProfileFontGrade(): Int = encryptedPrefs.getInt(KEY_PROFILE_GRADE, 0)
+    fun setProfileFontGrade(value: Int) { encryptedPrefs.edit().putInt(KEY_PROFILE_GRADE, value).apply() }
+    fun getProfileFontWeight(): Int = encryptedPrefs.getInt(KEY_PROFILE_WEIGHT, 650)
+    fun setProfileFontWeight(value: Int) { encryptedPrefs.edit().putInt(KEY_PROFILE_WEIGHT, value).apply() }
+    fun getProfileOpticalSize(): Float = encryptedPrefs.getFloat(KEY_PROFILE_OPSZ, 14f)
+    fun setProfileOpticalSize(value: Float) { encryptedPrefs.edit().putFloat(KEY_PROFILE_OPSZ, value).apply() }
+    fun getProfileBio(): String = encryptedPrefs.getString(KEY_PROFILE_BIO, "") ?: ""
+    fun setProfileBio(value: String) { encryptedPrefs.edit().putString(KEY_PROFILE_BIO, value.take(300)).apply() }
+
     fun setApplicationForeground(isForeground: Boolean) {
         encryptedPrefs.edit().putBoolean(KEY_APP_FOREGROUND, isForeground).apply()
     }
@@ -113,6 +128,13 @@ class SecurePreferencesManager(context: Context) {
         private const val KEY_SUPABASE_AUTH_USER_ID = "pref_supabase_auth_user_id"
         private const val KEY_APP_FOREGROUND = "pref_app_foreground"
         private const val KEY_VOICE_OF_USER = "pref_voice_of_user_enabled"
+        private const val KEY_PROFILE_BACKGROUND = "pref_profile_background"
+        private const val KEY_PROFILE_FONT = "pref_profile_font"
+        private const val KEY_PROFILE_WIDTH = "pref_profile_font_width"
+        private const val KEY_PROFILE_GRADE = "pref_profile_font_grade"
+        private const val KEY_PROFILE_WEIGHT = "pref_profile_font_weight"
+        private const val KEY_PROFILE_OPSZ = "pref_profile_font_opsz"
+        private const val KEY_PROFILE_BIO = "pref_profile_bio"
         private const val KEY_SUPABASE_URL = "pref_supabase_url"
         private const val KEY_SUPABASE_ANON_KEY = "pref_supabase_anon_key"
     }

@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
@@ -87,35 +88,43 @@ fun AppNavigationBar(
     items: List<AppNavigationDestination>,
     modifier: Modifier = Modifier
 ) {
-    NavigationBar(
+    val containerShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+    Surface(
         modifier = modifier.fillMaxWidth(),
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        shape = containerShape,
+        color = MaterialTheme.colorScheme.surfaceContainer,
         contentColor = MaterialTheme.colorScheme.onSurface
     ) {
-        for ((index, item) in items.withIndex()) {
-            val selected = selectedIndex == index
-            val destinationIcon = if (selected) item.icon else item.unselectedIcon
-            val icon: @Composable () -> Unit = {
-                if (item.badgeCount > 0) {
-                    BadgedBox(badge = {
-                        Badge {
-                            Text(if (item.badgeCount > 99) "99+" else item.badgeCount.toString())
+        NavigationBar(
+            modifier = Modifier.fillMaxWidth(),
+            containerColor = Color.Transparent,
+            contentColor = MaterialTheme.colorScheme.onSurface
+        ) {
+            for ((index, item) in items.withIndex()) {
+                val selected = selectedIndex == index
+                val destinationIcon = if (selected) item.icon else item.unselectedIcon
+                val icon: @Composable () -> Unit = {
+                    if (item.badgeCount > 0) {
+                        BadgedBox(badge = {
+                            Badge {
+                                Text(if (item.badgeCount > 99) "99+" else item.badgeCount.toString())
+                            }
+                        }) {
+                            Icon(destinationIcon, contentDescription = null)
                         }
-                    }) {
+                    } else {
                         Icon(destinationIcon, contentDescription = null)
                     }
-                } else {
-                    Icon(destinationIcon, contentDescription = null)
                 }
+                NavigationBarItem(
+                    selected = selected,
+                    onClick = { onSelectIndex(index) },
+                    icon = icon,
+                    label = { Text(item.label, maxLines = 1) },
+                    alwaysShowLabel = true,
+                    modifier = Modifier.testTag(item.testTag)
+                )
             }
-            NavigationBarItem(
-                selected = selected,
-                onClick = { onSelectIndex(index) },
-                icon = icon,
-                label = { Text(item.label, maxLines = 1) },
-                alwaysShowLabel = true,
-                modifier = Modifier.testTag(item.testTag)
-            )
         }
     }
 }

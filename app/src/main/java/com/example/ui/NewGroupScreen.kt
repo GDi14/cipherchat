@@ -141,7 +141,7 @@ fun NewGroupScreen(viewModel: NewGroupViewModel, onBack: () -> Unit, onGroupCrea
                                     selected = true,
                                     onClick = { viewModel.toggleFriendSelection(friend.id) },
                                     label = { Text(friend.displayName) },
-                                    leadingIcon = { ExpressiveAvatar(name = friend.displayName, size = 24.dp) },
+                                    leadingIcon = { ExpressiveAvatar(name = friend.displayName, avatarUrl = friend.avatarPath, size = 24.dp) },
                                     trailingIcon = { Icon(Icons.Default.Close, contentDescription = "Remove ${friend.displayName}", Modifier.size(16.dp)) }
                                 )
                             }

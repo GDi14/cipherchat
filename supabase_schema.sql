@@ -11,11 +11,25 @@ create table if not exists public.profiles (
     display_name text not null,
     tag text not null unique,
     avatar_path text null,
+    profile_background text not null default '#C987FA',
+    profile_font text not null default 'roboto_flex',
+    profile_font_width real not null default 100,
+    profile_font_grade integer not null default 0,
+    profile_font_weight integer not null default 650,
+    profile_font_opsz real not null default 14,
+    profile_bio text not null default '',
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
 );
 
 alter table public.profiles add column if not exists auth_user_id uuid references auth.users(id) on delete cascade;
+alter table public.profiles add column if not exists profile_background text not null default '#C987FA';
+alter table public.profiles add column if not exists profile_font text not null default 'roboto_flex';
+alter table public.profiles add column if not exists profile_font_width real not null default 100;
+alter table public.profiles add column if not exists profile_font_grade integer not null default 0;
+alter table public.profiles add column if not exists profile_font_weight integer not null default 650;
+alter table public.profiles add column if not exists profile_font_opsz real not null default 14;
+alter table public.profiles add column if not exists profile_bio text not null default '';
 create unique index if not exists idx_profiles_auth_user on public.profiles(auth_user_id) where auth_user_id is not null;
 
 create index if not exists idx_profiles_tag on public.profiles(lower(tag));
@@ -335,6 +349,10 @@ drop policy if exists "Allow storage select chat-media" on storage.objects;
 drop policy if exists "Allow storage insert chat-media" on storage.objects;
 drop policy if exists "Allow storage select avatars" on storage.objects;
 drop policy if exists "Allow storage insert avatars" on storage.objects;
+drop policy if exists "Authenticated members read chat media" on storage.objects;
+drop policy if exists "Authenticated members upload chat media" on storage.objects;
+drop policy if exists "Authenticated users read avatars" on storage.objects;
+drop policy if exists "Authenticated users upload own avatar" on storage.objects;
 create policy "Authenticated members read chat media" on storage.objects for select to authenticated
   using (bucket_id = 'chat-media' and public.is_conversation_member(split_part(name, '/', 1)::uuid));
 create policy "Authenticated members upload chat media" on storage.objects for insert to authenticated

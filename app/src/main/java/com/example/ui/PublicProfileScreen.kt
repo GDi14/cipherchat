@@ -26,11 +26,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -56,12 +56,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -70,15 +70,14 @@ import coil.compose.AsyncImage
 import com.example.data.local.ConversationEntity
 import com.example.data.local.FriendRequestEntity
 import com.example.data.local.ProfileEntity
+import com.example.data.remote.ProfileAppearance
 import com.example.repository.FriendRepository
-import com.example.ui.theme.GoogleSansFlexDisplay
-import com.example.ui.theme.GoogleSansFlexHeadline
 import com.example.ui.theme.LocalExpressiveMotionEnabled
+import com.example.ui.typography.ChatFontOption
 
 private val ProfileCanvas = Color(0xFFC987FA)
-private val ProfileInk = Color(0xFF190626)
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalTextApi::class)
 @Composable
 fun PublicProfilePage(
     userId: String,
@@ -91,19 +90,46 @@ fun PublicProfilePage(
     onOpenConversation: (String) -> Unit
 ) {
     var profile by remember(userId) { mutableStateOf<ProfileEntity?>(null) }
+    var profileAppearance by remember(userId) { mutableStateOf(ProfileAppearance()) }
     var isLoading by remember(userId) { mutableStateOf(true) }
     var reloadKey by remember(userId) { mutableIntStateOf(0) }
     val snackbar = remember { SnackbarHostState() }
     val uiState by homeViewModel.uiState.collectAsState()
     val motionEnabled = LocalExpressiveMotionEnabled.current
     val isFriend = friends.any { it.id == userId } || profile?.isFriend == true
+    val isOwnProfile = userId == friendRepository.myUserId
     val requestPending = requests.any {
         it.status == "pending" && it.senderId == friendRepository.myUserId && it.receiverId == userId
     }
 
-    LaunchedEffect(userId, reloadKey) {
+    LaunchedEffect(userId, reloadKey, if (isOwnProfile) uiState.profileAppearance else null) {
         isLoading = true
-        profile = friendRepository.getProfileById(userId)
+        if (isOwnProfile) {
+            val auth = homeViewModel.authRepository
+            profileAppearance = uiState.profileAppearance
+            profile = ProfileEntity(
+                id = userId,
+                displayName = auth.getDisplayName(),
+                tag = auth.getTag(),
+                avatarPath = auth.getAvatarPath(),
+                isFriend = false
+            )
+            isLoading = false
+            return@LaunchedEffect
+        }
+        val cachedProfile = friendRepository.getProfileById(userId)
+        profile = cachedProfile
+        friendRepository.getRemoteProfileById(userId)?.let { dto ->
+            profileAppearance = ProfileAppearance(dto.profileBackground, dto.profileFont, dto.profileFontWidth,
+                dto.profileFontGrade, dto.profileFontWeight, dto.profileFontOpticalSize, dto.profileBio)
+            profile = ProfileEntity(
+                id = dto.id,
+                displayName = dto.displayName,
+                tag = dto.tag,
+                avatarPath = dto.avatarPath,
+                isFriend = cachedProfile?.isFriend == true
+            )
+        }
         isLoading = false
     }
     LaunchedEffect(uiState.statusMessage, uiState.errorMessage) {
@@ -111,32 +137,40 @@ fun PublicProfilePage(
         uiState.errorMessage?.let { snackbar.showSnackbar(it); homeViewModel.clearError() }
     }
 
+    val canvasColor = remember(profileAppearance.background) { profileColor(profileAppearance.background, ProfileCanvas) }
+    val inkColor = remember(canvasColor) { bestContrastInk(canvasColor) }
+    val profileFont = remember(profileAppearance) {
+        ChatFontOption.fromId(profileAppearance.fontId).getFontFamily(
+            profileAppearance.weight, profileAppearance.width, grade = 0,
+            opticalSize = 14f
+        )
+    }
     Scaffold(
-        containerColor = ProfileCanvas,
+        containerColor = canvasColor,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = ProfileInk)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = inkColor)
                     }
                 },
                 title = {
-                    Text(
-                        profile?.let { "@${it.tag}" } ?: "PROFILE",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = ProfileInk,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+            ProfileWeightText(
+                "Profile",
+                weight = profileAppearance.effectiveProfileWeight(),
+                width = profileAppearance.width,
+                style = MaterialTheme.typography.titleLarge.copy(fontFamily = profileFont),
+                color = inkColor
+            )
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = ProfileCanvas)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = canvasColor)
             )
         }
     ) { insets ->
         when {
             isLoading -> ProfileLoading(insets)
-            profile == null -> ProfileUnavailable(insets) { reloadKey++ }
+            profile == null -> ProfileUnavailable(insets, canvasColor, inkColor) { reloadKey++ }
             else -> {
                 val user = profile!!
                 BoxWithConstraints(Modifier.fillMaxSize().padding(insets)) {
@@ -150,9 +184,36 @@ fun PublicProfilePage(
                             modifier = Modifier.width(contentWidth).padding(horizontal = 24.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            ProfileDisplayName(user.displayName, contentWidth - 48.dp)
+                            ProfileDisplayName(user.displayName, contentWidth - 48.dp, profileAppearance, inkColor)
                             Spacer(Modifier.height(18.dp))
-                            ProfilePortrait(user.displayName, user.avatarPath, photoHeight)
+                            ProfilePortrait(user.displayName, user.avatarPath, photoHeight, canvasColor, inkColor, profileFont, profileAppearance)
+
+                            if (profileAppearance.bio.isNotBlank()) {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 18.dp),
+                                    shape = MaterialTheme.shapes.large,
+                                    color = inkColor.copy(alpha = 0.08f)
+                                ) {
+                                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        ProfileWeightText(
+                                            "ABOUT",
+                                            weight = profileAppearance.effectiveProfileWeight(),
+                                            width = profileAppearance.width,
+                                            style = MaterialTheme.typography.labelLarge.copy(fontFamily = profileFont),
+                                            color = inkColor
+                                        )
+                                        ProfileWeightText(
+                                            profileAppearance.bio,
+                                            weight = profileAppearance.effectiveProfileWeight(),
+                                            width = profileAppearance.width,
+                                            style = MaterialTheme.typography.bodyLarge.copy(
+                                                fontFamily = profileFont
+                                            ),
+                                            color = inkColor
+                                        )
+                                    }
+                                }
+                            }
 
                             AnimatedVisibility(
                                 visible = true,
@@ -167,23 +228,29 @@ fun PublicProfilePage(
                                         Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
-                                        ProfileDetail(
-                                            title = "HANDLE",
-                                            value = "@${user.tag}",
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        ProfileDetail(
-                                            title = "CONNECTION",
-                                            value = if (isFriend) "Friends" else "Cipher Chat",
-                                            modifier = Modifier.weight(1f)
-                                        )
+                                        Surface(
+                                            modifier = Modifier.weight(1f),
+                                            shape = MaterialTheme.shapes.large,
+                                            color = inkColor.copy(alpha = 0.08f)
+                                        ) {
+                                            ProfileDetail(
+                                                title = "HANDLE",
+                                                value = "@${user.tag}",
+                                                modifier = Modifier.padding(16.dp), appearance = profileAppearance, ink = inkColor
+                                            )
+                                        }
+                                        Surface(
+                                            modifier = Modifier.weight(1f),
+                                            shape = MaterialTheme.shapes.large,
+                                            color = inkColor.copy(alpha = 0.08f)
+                                        ) {
+                                            ProfileDetail(
+                                                title = "CONNECTION",
+                                                value = if (isFriend) "Friends" else "Cipher Chat",
+                                                modifier = Modifier.padding(16.dp), appearance = profileAppearance, ink = inkColor
+                                            )
+                                        }
                                     }
-
-                                    Text(
-                                        "A little closer, one conversation at a time.",
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = ProfileInk.copy(alpha = 0.78f)
-                                    )
 
                                     if (isFriend) {
                                         Button(
@@ -199,13 +266,19 @@ fun PublicProfilePage(
                                             modifier = Modifier.fillMaxWidth().height(56.dp),
                                             shape = CircleShape,
                                             colors = ButtonDefaults.buttonColors(
-                                                containerColor = ProfileInk,
-                                                contentColor = Color.White
+                                                containerColor = inkColor,
+                                                contentColor = canvasColor
                                             )
                                         ) {
                                             Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null)
                                             Spacer(Modifier.width(10.dp))
-                                            Text("Message")
+                                            ProfileWeightText(
+                                                "Message",
+                                                weight = profileAppearance.effectiveProfileWeight(),
+                                                width = profileAppearance.width,
+                                                style = MaterialTheme.typography.labelLarge.copy(fontFamily = profileFont),
+                                                color = canvasColor
+                                            )
                                         }
                                     } else {
                                         Button(
@@ -214,8 +287,8 @@ fun PublicProfilePage(
                                             modifier = Modifier.fillMaxWidth().height(56.dp),
                                             shape = CircleShape,
                                             colors = ButtonDefaults.buttonColors(
-                                                containerColor = ProfileInk,
-                                                contentColor = Color.White
+                                                containerColor = inkColor,
+                                                contentColor = canvasColor
                                             )
                                         ) {
                                             Icon(
@@ -223,7 +296,13 @@ fun PublicProfilePage(
                                                 contentDescription = null
                                             )
                                             Spacer(Modifier.width(10.dp))
-                                            Text(if (requestPending) "Request sent" else "Add friend")
+                                            ProfileWeightText(
+                                                if (requestPending) "Request sent" else "Add friend",
+                                                weight = profileAppearance.effectiveProfileWeight(),
+                                                width = profileAppearance.width,
+                                                style = MaterialTheme.typography.labelLarge.copy(fontFamily = profileFont),
+                                                color = canvasColor
+                                            )
                                         }
                                     }
                                 }
@@ -237,46 +316,44 @@ fun PublicProfilePage(
 }
 
 @Composable
-private fun ProfileDisplayName(name: String, availableWidth: Dp) {
-    val title = name.uppercase()
-    val glyphSize = ((availableWidth.value - 12f) / (title.length.coerceAtLeast(1) * 0.68f))
-        .coerceIn(28f, 96f)
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        title.forEachIndexed { index, glyph ->
-            Text(
-                text = glyph.toString(),
-                modifier = Modifier.rotate(
-                    when {
-                        glyph.isWhitespace() -> 0f
-                        index % 3 == 0 -> -4f
-                        index % 3 == 1 -> 2.5f
-                        else -> -1.5f
-                    }
-                ),
-                style = TextStyle(
-                    fontFamily = if (index % 3 == 0) GoogleSansFlexHeadline else GoogleSansFlexDisplay,
-                    fontWeight = if (index % 3 == 0) FontWeight.Bold else FontWeight.ExtraBold,
-                    fontSize = glyphSize.sp,
-                    lineHeight = (glyphSize * 1.04f).sp,
-                    letterSpacing = (-3).sp
-                ),
-                color = ProfileInk,
-                maxLines = 1
-            )
-        }
+@OptIn(ExperimentalTextApi::class)
+private fun ProfileDisplayName(name: String, availableWidth: Dp, appearance: ProfileAppearance, ink: Color) {
+    val fontFamily = remember(appearance) {
+        ChatFontOption.fromId(appearance.fontId).getFontFamily(
+            appearance.weight, appearance.width, grade = 0, opticalSize = 14f
+        )
     }
+    ProfileWeightText(
+        text = name,
+        weight = appearance.effectiveProfileWeight(),
+        modifier = Modifier.widthIn(max = availableWidth)
+            .graphicsLayer { scaleX = appearance.width / 100f },
+        style = MaterialTheme.typography.titleLarge.copy(
+            fontFamily = fontFamily,
+            fontSize = 28.sp,
+            letterSpacing = (-0.6).sp
+        ),
+        color = ink,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
 }
 
 @Composable
-private fun ProfilePortrait(name: String, avatarUrl: String?, height: Dp) {
+@OptIn(ExperimentalTextApi::class)
+private fun ProfilePortrait(
+    name: String,
+    avatarUrl: String?,
+    height: Dp,
+    canvas: Color,
+    ink: Color,
+    profileFont: androidx.compose.ui.text.font.FontFamily,
+    appearance: ProfileAppearance
+) {
     Box(
         Modifier.fillMaxWidth().height(height)
             .clip(RoundedCornerShape(30.dp))
-            .background(Brush.linearGradient(listOf(MaterialTheme.colorScheme.tertiary, ProfileInk)))
+            .background(ink)
     ) {
         if (!avatarUrl.isNullOrBlank()) {
             AsyncImage(
@@ -288,63 +365,66 @@ private fun ProfilePortrait(name: String, avatarUrl: String?, height: Dp) {
         } else {
             Box(
                 Modifier.fillMaxSize().background(
-                    Brush.linearGradient(
-                        listOf(MaterialTheme.colorScheme.tertiary, MaterialTheme.colorScheme.primary, ProfileInk)
-                    )
+                    ink
                 ),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
+                ProfileWeightText(
                     name.firstOrNull()?.uppercase() ?: "?",
-                    style = MaterialTheme.typography.displayLarge,
-                    color = Color.White.copy(alpha = 0.9f)
+                    weight = appearance.effectiveProfileWeight(),
+                    width = appearance.width,
+                    style = MaterialTheme.typography.displayLarge.copy(
+                        fontFamily = profileFont
+                    ),
+                    color = canvas
                 )
-            }
-        }
-        Box(
-            Modifier.fillMaxSize().background(
-                Brush.verticalGradient(
-                    0f to Color.Transparent,
-                    0.60f to Color.Transparent,
-                    1f to ProfileInk.copy(alpha = 0.52f)
-                )
-            )
-        )
-        Surface(
-            modifier = Modifier.align(Alignment.BottomStart).padding(18.dp),
-            shape = CircleShape,
-            color = ProfileCanvas.copy(alpha = 0.93f),
-            contentColor = ProfileInk
-        ) {
-            Row(
-                Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(Icons.Default.Group, contentDescription = null, modifier = Modifier.size(18.dp))
-                Text("CIPHER CHAT", style = MaterialTheme.typography.labelLarge)
             }
         }
     }
 }
 
 @Composable
-private fun ProfileDetail(title: String, value: String, modifier: Modifier = Modifier) {
+@OptIn(ExperimentalTextApi::class)
+private fun ProfileDetail(title: String, value: String, modifier: Modifier = Modifier, appearance: ProfileAppearance, ink: Color) {
+    val fontFamily = remember(appearance) {
+        ChatFontOption.fromId(appearance.fontId).getFontFamily(
+            appearance.weight, appearance.width, grade = 0, opticalSize = 14f
+        )
+    }
     Column(modifier) {
-        Text(
+        ProfileWeightText(
             title,
-            style = MaterialTheme.typography.labelMedium,
-            color = ProfileInk.copy(alpha = 0.62f)
+            weight = appearance.effectiveProfileWeight(),
+            width = appearance.width,
+            style = MaterialTheme.typography.labelMedium.copy(fontFamily = fontFamily),
+            color = ink
         )
         Spacer(Modifier.height(5.dp))
-        Text(
+        ProfileWeightText(
             value,
-            style = MaterialTheme.typography.titleMedium,
-            color = ProfileInk,
+            weight = appearance.effectiveProfileWeight(),
+            width = appearance.width,
+            style = MaterialTheme.typography.titleMedium.copy(fontFamily = fontFamily),
+            color = ink,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
     }
+}
+
+private fun profileColor(hex: String, fallback: Color): Color = runCatching {
+    Color(android.graphics.Color.parseColor(hex))
+}.getOrDefault(fallback)
+
+private fun bestContrastInk(background: Color): Color {
+    val luminance = background.luminance()
+    val blackContrast = (luminance + 0.05f) / 0.05f
+    val whiteContrast = 1.05f / (luminance + 0.05f)
+    return if (blackContrast >= whiteContrast) Color(0xFF190626) else Color(0xFFFFF8FF)
+}
+
+private fun ProfileAppearance.effectiveProfileWeight(): Int {
+    return weight.coerceIn(100, 1000)
 }
 
 @Composable
@@ -355,16 +435,21 @@ private fun ProfileLoading(insets: PaddingValues) {
 }
 
 @Composable
-private fun ProfileUnavailable(insets: PaddingValues, onRetry: () -> Unit) {
+private fun ProfileUnavailable(insets: PaddingValues, canvas: Color, ink: Color, onRetry: () -> Unit) {
     Box(Modifier.fillMaxSize().padding(insets), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Profile unavailable", style = MaterialTheme.typography.headlineSmall, color = ProfileInk)
+            Text("Profile unavailable", style = MaterialTheme.typography.headlineSmall, color = ink)
             Text(
                 "This profile could not be loaded.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = ProfileInk.copy(alpha = 0.7f)
+                color = ink
             )
-            AssistChip(onClick = onRetry, label = { Text("Try again") }, leadingIcon = {
+            AssistChip(
+                onClick = onRetry,
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = ink, labelColor = canvas, leadingIconContentColor = canvas
+                ),
+                label = { Text("Try again") }, leadingIcon = {
                 Icon(Icons.Default.Refresh, contentDescription = null)
             })
         }

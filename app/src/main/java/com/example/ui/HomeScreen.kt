@@ -18,8 +18,10 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -30,15 +32,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -72,11 +77,14 @@ import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -91,6 +99,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -111,20 +120,32 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.local.ConversationEntity
 import com.example.data.local.FriendRequestEntity
 import com.example.data.local.ProfileEntity
+import com.example.data.remote.ProfileAppearance
 import com.example.utils.AppUpdater
+import com.example.ui.typography.ChatFontOption
 import kotlinx.coroutines.launch
 import com.example.ui.components.AppNavigationBar
 import com.example.ui.components.AppNavigationDestination
@@ -138,19 +159,55 @@ import com.example.ui.theme.ExpressiveTopSurfaceShape
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, onNavigateToNewGroup: () -> Unit,
                onOpenAddFriends: () -> Unit, onOpenNotifications: () -> Unit,
-               onOpenSettings: () -> Unit, onOpenProfile: (String) -> Unit = {}) {
+               onOpenAppSettings: () -> Unit, onOpenProfileSettings: () -> Unit,
+               onOpenProfile: (String) -> Unit = {}) {
     val state by viewModel.uiState.collectAsState()
     val conversations by viewModel.conversations.collectAsState()
     val friends by viewModel.friends.collectAsState()
     val requests by viewModel.pendingRequests.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     var fabOpen by remember { mutableStateOf(false) }
+    var settingsMenuExpanded by remember { mutableStateOf(false) }
     var pageSearchQuery by remember { mutableStateOf("") }
+    var homeHeaderHeightPx by remember { mutableIntStateOf(0) }
+    var chatSurfaceExpansionPx by remember { mutableStateOf(0f) }
+    var chatListHasOverflow by remember { mutableStateOf(false) }
+    val chatListState = rememberLazyListState()
+    val statusBarHeightPx = WindowInsets.statusBars.getTop(LocalDensity.current).toFloat()
+    val chatSurfaceExpansionLimitPx = (homeHeaderHeightPx - statusBarHeightPx).coerceAtLeast(0f)
+    val homeScrollConnection = remember(
+        state.selectedTab, chatSurfaceExpansionLimitPx, chatListState, chatListHasOverflow
+    ) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (state.selectedTab != 0) return Offset.Zero
+
+                val atTop = chatListState.firstVisibleItemIndex == 0 &&
+                    chatListState.firstVisibleItemScrollOffset == 0
+                val currentExpansion = chatSurfaceExpansionPx
+                val delta = when {
+                    available.y < 0f && chatListHasOverflow && chatListState.canScrollForward &&
+                        currentExpansion < chatSurfaceExpansionLimitPx ->
+                        -minOf(-available.y, chatSurfaceExpansionLimitPx - currentExpansion)
+                    available.y > 0f && atTop && currentExpansion > 0f ->
+                        minOf(available.y, currentExpansion)
+                    else -> 0f
+                }
+                if (delta == 0f) return Offset.Zero
+                chatSurfaceExpansionPx = (currentExpansion - delta)
+                    .coerceIn(0f, chatSurfaceExpansionLimitPx)
+                return Offset(0f, delta)
+            }
+        }
+    }
     val wide = LocalConfiguration.current.screenWidthDp >= 600
     val unreadCount = remember(conversations) { conversations.sumOf { it.unreadCount } }
     val directConversations = remember(conversations) { conversations.filter { it.type == "direct" } }
@@ -170,14 +227,24 @@ fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, o
         state.statusMessage?.let { snackbar.showSnackbar(it); viewModel.clearStatus() }
     }
     LaunchedEffect(state.selectedTab) { pageSearchQuery = "" }
+    LaunchedEffect(state.selectedTab) {
+        if (state.selectedTab != 0) {
+            chatSurfaceExpansionPx = 0f
+            chatListHasOverflow = false
+        }
+    }
 
     Scaffold(
+        modifier = Modifier.nestedScroll(homeScrollConnection),
         containerColor = MaterialTheme.colorScheme.surface,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             Surface(
                 color = MaterialTheme.colorScheme.surface,
-                modifier = Modifier.windowInsetsPadding(WindowInsets.statusBars)
+                modifier = Modifier
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .onSizeChanged { homeHeaderHeightPx = it.height }
+                    .graphicsLayer { translationY = if (state.selectedTab == 0) -chatSurfaceExpansionPx else 0f }
             ) {
                 Column(Modifier.widthIn(max = 1040.dp).fillMaxWidth().padding(horizontal = 20.dp)) {
                     Row(
@@ -198,8 +265,31 @@ fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, o
                                 Icon(Icons.Default.Notifications, contentDescription = "Notifications")
                             }
                         }
-                        IconButton(onClick = onOpenSettings, modifier = Modifier.testTag("settings_action")) {
-                            Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        Box {
+                            IconButton(onClick = { settingsMenuExpanded = true }, modifier = Modifier.testTag("settings_action")) {
+                                Icon(Icons.Default.Settings, contentDescription = "Settings")
+                            }
+                            DropdownMenu(
+                                expanded = settingsMenuExpanded,
+                                onDismissRequest = { settingsMenuExpanded = false },
+                                modifier = Modifier.width(240.dp).padding(vertical = 6.dp)
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("App") },
+                                    leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                                    onClick = { settingsMenuExpanded = false; onOpenAppSettings() },
+                                    modifier = Modifier.testTag("settings_menu_app"),
+                                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp)
+                                )
+                                HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                                DropdownMenuItem(
+                                    text = { Text("Profile") },
+                                    leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                                    onClick = { settingsMenuExpanded = false; onOpenProfileSettings() },
+                                    modifier = Modifier.testTag("settings_menu_profile"),
+                                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp)
+                                )
+                            }
                         }
                     }
                     Box(Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
@@ -262,6 +352,9 @@ fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, o
                             state.isSyncing, viewModel::sync, friends, onOpenAddFriends,
                             state.favoriteFriendIds, scopeKey = "chats", searchQuery = pageSearchQuery,
                             onSearchQueryChange = { pageSearchQuery = it }, showSearchField = false, onOpenProfile = onOpenProfile,
+                            homeListState = chatListState,
+                            sheetExpansionPx = chatSurfaceExpansionPx,
+                            onChatListOverflowChange = { chatListHasOverflow = it },
                             onOpenConversationWithFriend = { friend ->
                                 viewModel.openConversationWithFriend(friend, onOpenConversation)
                             })
@@ -285,6 +378,8 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                favoriteFriendIds: Set<String> = emptySet(), scopeKey: String = "chats",
                searchQuery: String? = null, onSearchQueryChange: ((String) -> Unit)? = null,
                showSearchField: Boolean = true, onOpenProfile: (String) -> Unit = {},
+               homeListState: LazyListState? = null, sheetExpansionPx: Float = 0f,
+               onChatListOverflowChange: (Boolean) -> Unit = {},
                onOpenConversationWithFriend: (ProfileEntity) -> Unit = {}) {
     var localQuery by remember(scopeKey) { mutableStateOf("") }
     val query = searchQuery ?: localQuery
@@ -303,15 +398,43 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
             }
         }
     }
+    val listState = homeListState ?: rememberLazyListState()
+    LaunchedEffect(listState, visible) {
+        val conversationKeys = visible.map { it.id }.toSet()
+        snapshotFlow {
+            val atTop = listState.firstVisibleItemIndex == 0 &&
+                listState.firstVisibleItemScrollOffset == 0
+            if (!atTop || listState.layoutInfo.totalItemsCount == 0) {
+                null
+            } else {
+                val layoutInfo = listState.layoutInfo
+                val visibleConversationItems = layoutInfo.visibleItemsInfo.filter { it.key in conversationKeys }
+                val allConversationsFit = visibleConversationItems.size == conversationKeys.size &&
+                    visibleConversationItems.all {
+                        it.offset >= layoutInfo.viewportStartOffset &&
+                            it.offset + it.size <= layoutInfo.viewportEndOffset
+                    }
+                conversationKeys.isNotEmpty() && !allConversationsFit
+            }
+        }.filterNotNull().distinctUntilChanged().collect(onChatListOverflowChange)
+    }
     PullToRefreshBox(isRefreshing = isRefreshing, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            shape = ExpressiveTopSurfaceShape,
-            color = MaterialTheme.colorScheme.surfaceContainerLow
-        ) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val expansion = with(LocalDensity.current) { sheetExpansionPx.toDp() }
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .requiredHeight(maxHeight + expansion)
+                    .align(Alignment.BottomCenter),
+                shape = ExpressiveTopSurfaceShape,
+                color = MaterialTheme.colorScheme.surfaceContainerLow
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
                 LazyColumn(
-                    modifier = Modifier.widthIn(max = 980.dp).fillMaxSize(),
+                    state = listState,
+                    modifier = Modifier
+                        .widthIn(max = 980.dp)
+                        .fillMaxSize(),
                     contentPadding = PaddingValues(start = horizontalMargin, end = horizontalMargin, top = 20.dp, bottom = 104.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -429,6 +552,9 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                 }
             } else {
                 items(visible, key = { it.id }) { conversation ->
+                    val conversationAvatarPath = conversation.otherUserId?.let { otherUserId ->
+                        friends.firstOrNull { it.id == otherUserId }?.avatarPath
+                    }
                     val time = remember(conversation.lastMessageTimestamp) {
                         if (conversation.lastMessageTimestamp == 0L) "" else {
                             val date = Date(conversation.lastMessageTimestamp)
@@ -445,7 +571,7 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                     ) {
                         ListItem(
                             leadingContent = {
-                                ExpressiveAvatar(conversation.title ?: "Chat", size = 56.dp,
+                                ExpressiveAvatar(conversation.title ?: "Chat", avatarUrl = conversationAvatarPath, size = 56.dp,
                                     modifier = Modifier.clickable(enabled = conversation.type == "direct" && conversation.otherUserId != null) {
                                         conversation.otherUserId?.let(onOpenProfile)
                                     })
@@ -503,10 +629,11 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                     }
                 }
             }
-                }
-            }
         }
     }
+}
+}
+}
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -579,7 +706,7 @@ fun M3FriendsTab(viewModel: HomeViewModel, friends: List<ProfileEntity>, pending
                     Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.secondaryContainer,
                         modifier = Modifier.fillMaxWidth()) {
                         ListItem(
-                            leadingContent = { ExpressiveAvatar(request.senderName, size = 48.dp) },
+                            leadingContent = { ExpressiveAvatar(request.senderName, request.avatarPath, size = 48.dp) },
                             headlineContent = { Text(request.senderName) }, supportingContent = { Text("@${request.senderTag}") },
                             trailingContent = {
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -689,7 +816,7 @@ fun M3NotificationsPage(viewModel: HomeViewModel, requests: List<FriendRequestEn
         requests.forEach { request ->
             Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.secondaryContainer,
                 modifier = Modifier.fillMaxWidth()) {
-                ListItem(leadingContent = { ExpressiveAvatar(request.senderName, size = 48.dp) },
+                ListItem(leadingContent = { ExpressiveAvatar(request.senderName, request.avatarPath, size = 48.dp) },
                     headlineContent = { Text("${request.senderName} sent a friend request") },
                     supportingContent = { Text("@${request.senderTag}") },
                     trailingContent = { Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -700,70 +827,6 @@ fun M3NotificationsPage(viewModel: HomeViewModel, requests: List<FriendRequestEn
         }
     }
     }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-fun M3SettingsPage(
-    onBack: () -> Unit,
-    onOpenProfileSettings: () -> Unit,
-    onOpenAppSettings: () -> Unit
-) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                navigationIcon = {
-                    IconButton(onClick = onBack, modifier = Modifier.testTag("back_button")) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                title = { Text("Settings") },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
-            )
-        }
-    ) { pagePadding ->
-        Box(Modifier.fillMaxSize().padding(pagePadding), contentAlignment = Alignment.TopCenter) {
-            Column(
-                Modifier.widthIn(max = 900.dp).fillMaxSize().verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text("MAKE IT YOURS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                Text("Settings", style = MaterialTheme.typography.headlineSmall)
-                Text("Account", style = MaterialTheme.typography.titleLarge)
-                Surface(
-                    onClick = onOpenProfileSettings,
-                    shape = MaterialTheme.shapes.extraLarge,
-                    color = MaterialTheme.colorScheme.surfaceContainerLow,
-                    modifier = Modifier.fillMaxWidth().testTag("open_profile_settings")
-                ) {
-                    ListItem(
-                        leadingContent = { Icon(Icons.Default.Person, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                        headlineContent = { Text("Profile settings") },
-                        supportingContent = { Text("Update your name, tag, and profile photo") },
-                        trailingContent = { Text("Open", color = MaterialTheme.colorScheme.primary) },
-                        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                    )
-                }
-
-                Text("Preferences", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 8.dp))
-                Surface(
-                    onClick = onOpenAppSettings,
-                    shape = MaterialTheme.shapes.extraLarge,
-                    color = MaterialTheme.colorScheme.surfaceContainerLow,
-                    modifier = Modifier.fillMaxWidth().testTag("open_app_settings")
-                ) {
-                    ListItem(
-                        leadingContent = { Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                        headlineContent = { Text("App settings") },
-                        supportingContent = { Text("Privacy, sync, and appearance options") },
-                        trailingContent = { Text("Open", color = MaterialTheme.colorScheme.primary) },
-                        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                    )
-                }
-            }
-        }
     }
 }
 
@@ -920,9 +983,159 @@ fun M3AppSettingsPage(viewModel: HomeViewModel, onBack: () -> Unit) {
     }
 }
 
+@OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
+@Composable
+private fun ProfileAppearanceSettings(
+    appearance: ProfileAppearance,
+    previewName: String,
+    previewTag: String,
+    previewAvatarPath: String?,
+    saveMessage: String?,
+    saveError: String?,
+    onAppearanceChange: (ProfileAppearance) -> Unit,
+    onSave: () -> Unit
+) {
+    val palettes = listOf(
+        "Lavender" to "#C987FA", "Violet" to "#8139A0", "Rose" to "#F2A7C7",
+        "Sky" to "#9BDCF2", "Mint" to "#9BF0D0", "Space" to "#1B1D22"
+    )
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Live profile preview", style = MaterialTheme.typography.titleMedium)
+            Text("Choose how your profile looks to other people.", style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.large,
+                color = profilePreviewColor(appearance.background)
+            ) {
+                val previewInk = profilePreviewInk(appearance.background)
+                val previewFont = ChatFontOption.fromId(appearance.fontId).getFontFamily(
+                    appearance.weight, appearance.width, grade = 0, opticalSize = 14f
+                )
+                Column(
+                    Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    ExpressiveAvatar(previewName, previewAvatarPath, size = 60.dp)
+                    ProfileWeightText(
+                        previewName.ifBlank { "Your name" },
+                        weight = profilePreviewWeight(appearance),
+                        modifier = Modifier.graphicsLayer { scaleX = appearance.width / 100f },
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontFamily = previewFont,
+                            fontSize = 28.sp,
+                            letterSpacing = (-0.6).sp
+                        ),
+                        color = previewInk,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    ProfileWeightText(
+                        "@${previewTag.ifBlank { "yourtag" }}",
+                        weight = profilePreviewWeight(appearance),
+                        width = appearance.width,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = previewFont),
+                        color = previewInk
+                    )
+                    ProfileWeightText(
+                        appearance.bio.ifBlank { "Your bio will appear here" },
+                        weight = profilePreviewWeight(appearance),
+                        width = appearance.width,
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = previewFont),
+                        color = previewInk,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Text("Profile background", style = MaterialTheme.typography.labelLarge)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                palettes.forEach { (name, color) ->
+                    FilterChip(
+                        selected = appearance.background.equals(color, ignoreCase = true),
+                        onClick = { onAppearanceChange(appearance.copy(background = color)) },
+                        label = { Text(name) }
+                    )
+                }
+            }
+            Text("Typography", style = MaterialTheme.typography.labelLarge)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ChatFontOption.entries.forEach { option ->
+                    FilterChip(
+                        selected = appearance.fontId == option.id,
+                        onClick = { onAppearanceChange(appearance.copy(fontId = option.id)) },
+                        label = { Text(option.displayName) }
+                    )
+                }
+            }
+            OutlinedTextField(
+                value = appearance.bio,
+                onValueChange = { onAppearanceChange(appearance.copy(bio = it.take(300))) },
+                label = { Text("Bio") },
+                placeholder = { Text("A little about you") },
+                supportingText = { Text("${appearance.bio.length}/300") },
+                minLines = 3,
+                maxLines = 5,
+                modifier = Modifier.fillMaxWidth()
+            )
+            ProfileAxisSlider("Width", appearance.width, 25f..151f, "${appearance.width.toInt()}") {
+                onAppearanceChange(appearance.copy(width = it))
+            }
+            ProfileAxisSlider("Weight", appearance.weight.toFloat(), 100f..1000f, appearance.weight.toString()) {
+                onAppearanceChange(appearance.copy(weight = it.toInt()))
+            }
+            Text(
+                "Changes are saved on this device as you adjust them. Save to publish them to your profile. Your Supabase schema must include the profile appearance and bio columns.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            saveMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
+            saveError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+            Button(onClick = onSave, modifier = Modifier.fillMaxWidth()) { Text("Save and share profile") }
+    }
+}
+
+@Composable
+private fun ProfileAxisSlider(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    valueLabel: String,
+    onValueChange: (Float) -> Unit
+) {
+    Column {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, style = MaterialTheme.typography.bodyMedium)
+            Text(valueLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        }
+        Slider(
+            value = value.coerceIn(range.start, range.endInclusive),
+            onValueChange = onValueChange,
+            valueRange = range
+        )
+    }
+}
+
+private fun profilePreviewWeight(appearance: ProfileAppearance): Int {
+    return appearance.weight.coerceIn(100, 1000)
+}
+
+private fun profilePreviewColor(hex: String): Color = runCatching {
+    Color(android.graphics.Color.parseColor(hex))
+}.getOrDefault(Color(0xFFC987FA))
+
+private fun profilePreviewInk(hex: String): Color {
+    val luminance = profilePreviewColor(hex).luminance()
+    val blackContrast = (luminance + 0.05f) / 0.05f
+    val whiteContrast = 1.05f / (luminance + 0.05f)
+    return if (blackContrast >= whiteContrast) Color(0xFF190626) else Color(0xFFFFF8FF)
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun M3ProfileTab(viewModel: HomeViewModel, onBack: (() -> Unit)? = null) {
+    val state by viewModel.uiState.collectAsState()
     val auth = viewModel.authRepository
     val cloud = viewModel.supabaseProvider
     val clipboard = LocalClipboardManager.current
@@ -940,7 +1153,7 @@ fun M3ProfileTab(viewModel: HomeViewModel, onBack: (() -> Unit)? = null) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     },
-                    title = { Text("Your profile") },
+                    title = { Text("Profile and customisation") },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
                 )
             }
@@ -949,30 +1162,31 @@ fun M3ProfileTab(viewModel: HomeViewModel, onBack: (() -> Unit)? = null) {
     Box(Modifier.fillMaxSize().padding(pagePadding), contentAlignment = Alignment.TopCenter) {
     Column(Modifier.widthIn(max = 900.dp).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(20.dp)) {
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("ACCOUNT", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-            Text("Your profile", style = MaterialTheme.typography.headlineSmall)
-        }
-        Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                IconButton(onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                    modifier = Modifier.size(92.dp).clip(CircleShape).testTag("profile_avatar_picker")) {
-                    val avatar = auth.getAvatarPath()
-                    if (!avatar.isNullOrBlank()) AsyncImage(avatar, contentDescription = "Change profile photo",
-                        modifier = Modifier.fillMaxSize().clip(CircleShape))
-                    else ExpressiveAvatar(name, size = 76.dp)
-                }
-                Text(name, style = MaterialTheme.typography.headlineSmall)
-                Text("@${auth.getTag()}", style = MaterialTheme.typography.bodyLarge)
-                Text("Your identity is protected on this device", style = MaterialTheme.typography.bodyMedium)
-            }
-        }
         Card(shape = MaterialTheme.shapes.extraLarge,
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
             modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+          Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Profile and customisation", style = MaterialTheme.typography.headlineSmall)
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Profile details", style = MaterialTheme.typography.titleLarge)
+                Surface(
+                    onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                    modifier = Modifier.size(72.dp).testTag("profile_avatar_picker"),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    val avatar = auth.getAvatarPath()
+                    if (!avatar.isNullOrBlank()) AsyncImage(
+                        model = avatar,
+                        contentDescription = "Change profile photo",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize().clip(CircleShape)
+                    )
+                    else ExpressiveAvatar(name, size = 64.dp)
+                }
                 OutlinedTextField(name, { name = it }, label = { Text("Display name") }, singleLine = true,
                     modifier = Modifier.fillMaxWidth().testTag("profile_name_input"))
                 OutlinedTextField(tag, { tag = it.trim().removePrefix("@").lowercase() }, label = { Text("Unique tag") },
@@ -980,13 +1194,22 @@ fun M3ProfileTab(viewModel: HomeViewModel, onBack: (() -> Unit)? = null) {
                 Button(onClick = { viewModel.updateProfile(name, tag, null) }, modifier = Modifier.fillMaxWidth().testTag("save_profile_button")) {
                     Text("Save profile")
                 }
+                state.statusMessage?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall) }
+                state.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
-        }
-        Card(shape = MaterialTheme.shapes.extraLarge,
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-            modifier = Modifier.fillMaxWidth()) {
+            Text("Customisation", style = MaterialTheme.typography.titleLarge)
+            ProfileAppearanceSettings(
+            appearance = state.profileAppearance,
+            previewName = name,
+            previewTag = tag,
+            previewAvatarPath = auth.getAvatarPath(),
+            saveMessage = state.statusMessage,
+            saveError = state.errorMessage,
+            onAppearanceChange = viewModel::updateProfileAppearance,
+            onSave = viewModel::publishProfileAppearance
+            )
             Column {
-                Text("Security & devices", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(20.dp))
+                Text("Security & devices", style = MaterialTheme.typography.titleLarge)
                 ListItem(leadingContent = { Icon(Icons.Default.Security, null, tint = MaterialTheme.colorScheme.primary) },
                     headlineContent = { Text("End-to-end encryption") }, supportingContent = { Text("libsignal Double Ratchet + X3DH") },
                     colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent))
@@ -1006,6 +1229,7 @@ fun M3ProfileTab(viewModel: HomeViewModel, onBack: (() -> Unit)? = null) {
                         modifier = Modifier.testTag("open_supabase_config_button")) { Text("Configure") } },
                     colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent))
             }
+          }
         }
         Spacer(Modifier.height(12.dp))
     }

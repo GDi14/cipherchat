@@ -19,7 +19,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SignalSignedPreKeyEntity::class,
         SignalSenderKeyEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -40,6 +40,11 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("CREATE TABLE IF NOT EXISTS hidden_messages (id TEXT NOT NULL PRIMARY KEY, hiddenAt INTEGER NOT NULL)")
             }
         }
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE friend_requests ADD COLUMN avatarPath TEXT")
+            }
+        }
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -50,7 +55,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "shieldchat.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                 INSTANCE = instance
                 instance

@@ -8,6 +8,7 @@ import com.example.data.local.ProfileEntity
 import com.example.data.local.SecurePreferencesManager
 import com.example.data.remote.PrekeyDto
 import com.example.data.remote.ProfileDto
+import com.example.data.remote.ProfileAppearance
 import com.example.data.remote.PushTokenRegistrar
 import com.example.data.remote.SupabaseClientProvider
 import io.github.jan.supabase.postgrest.postgrest
@@ -41,6 +42,67 @@ class AuthRepository(
     fun saveFavoriteFriendIds(ids: Set<String>) = securePrefs.saveFavoriteFriendIds(ids)
     fun isVoiceOfUserEnabled(): Boolean = securePrefs.isVoiceOfUserEnabled()
     fun setVoiceOfUserEnabled(enabled: Boolean) = securePrefs.setVoiceOfUserEnabled(enabled)
+    fun profileAppearance(): ProfileAppearance = ProfileAppearance(
+        background = securePrefs.getProfileBackgroundColor(), fontId = securePrefs.getProfileFontId(),
+        width = securePrefs.getProfileFontWidth(), grade = securePrefs.getProfileFontGrade(),
+        weight = securePrefs.getProfileFontWeight(), opticalSize = securePrefs.getProfileOpticalSize(),
+        bio = securePrefs.getProfileBio()
+    )
+
+    fun storeProfileAppearance(appearance: ProfileAppearance) {
+        securePrefs.setProfileBackgroundColor(appearance.background)
+        securePrefs.setProfileFontId(appearance.fontId)
+        securePrefs.setProfileFontWidth(appearance.width)
+        securePrefs.setProfileFontGrade(appearance.grade)
+        securePrefs.setProfileFontWeight(appearance.weight)
+        securePrefs.setProfileOpticalSize(appearance.opticalSize)
+        securePrefs.setProfileBio(appearance.bio)
+    }
+
+    suspend fun saveProfileAppearance(appearance: ProfileAppearance): Result<Unit> = withContext(Dispatchers.IO) {
+        storeProfileAppearance(appearance)
+        if (!supabaseProvider.isConfigured) {
+            return@withContext Result.failure(IllegalStateException("Connect to Supabase to share your profile appearance with contacts"))
+        }
+        runCatching {
+            val client = supabaseProvider.getClient()
+            val authUserId = securePrefs.getSupabaseAuthUserId()
+                ?: error("Sign in to Supabase before publishing your profile appearance")
+            check(client.auth.currentUserOrNull()?.id == authUserId) {
+                "Your secure cloud session expired. Sign in again before publishing profile changes."
+            }
+            // Resolve the canonical profile row by Auth identity first. On devices that
+            // re-linked an account, the local device UUID may differ from the public row.
+            val existingProfile = client.postgrest["profiles"].select {
+                filter { eq("auth_user_id", authUserId) }
+            }.decodeList<ProfileDto>().firstOrNull() ?: client.postgrest["profiles"].select {
+                filter { eq("id", myUserId) }
+            }.decodeList<ProfileDto>().firstOrNull()
+            val profileId = existingProfile?.id ?: myUserId
+            val profileDeviceId = existingProfile?.deviceId ?: myDeviceId
+            client.postgrest["profiles"].upsert(ProfileDto(
+                id = profileId, deviceId = profileDeviceId,
+                displayName = getDisplayName(), tag = getTag(), avatarPath = getAvatarPath(),
+                authUserId = authUserId,
+                profileBackground = appearance.background, profileFont = appearance.fontId,
+                profileFontWidth = appearance.width, profileFontGrade = appearance.grade,
+                profileFontWeight = appearance.weight, profileFontOpticalSize = appearance.opticalSize,
+                profileBio = appearance.bio
+            ))
+            val publishedProfile = client.postgrest["profiles"].select {
+                filter { eq("id", profileId) }
+            }.decodeList<ProfileDto>().firstOrNull()
+                ?: error("Supabase did not return the profile after saving its appearance")
+            check(
+                publishedProfile.profileFont == appearance.fontId &&
+                    publishedProfile.profileFontWeight == appearance.weight &&
+                    kotlin.math.abs(publishedProfile.profileFontWidth - appearance.width) < 0.01f
+            ) {
+                "Supabase did not save the selected profile font, weight, and width. Check the profile columns and update policy in supabase_schema.sql."
+            }
+            if (profileId != myUserId) securePrefs.setCurrentUserId(profileId)
+        }.map { Unit }.map { Unit }
+    }
 
     /** Exchange the native Google ID token for a Supabase Auth session and restore a linked profile. */
     suspend fun signInWithGoogleIdToken(idToken: String): Result<Boolean> = withContext(Dispatchers.IO) {
@@ -66,6 +128,13 @@ class AuthRepository(
                     linkedProfile.avatarPath,
                     authUserId
                 )
+                securePrefs.setProfileBackgroundColor(linkedProfile.profileBackground)
+                securePrefs.setProfileFontId(linkedProfile.profileFont)
+                securePrefs.setProfileFontWidth(linkedProfile.profileFontWidth)
+                securePrefs.setProfileFontGrade(linkedProfile.profileFontGrade)
+                securePrefs.setProfileFontWeight(linkedProfile.profileFontWeight)
+                securePrefs.setProfileOpticalSize(linkedProfile.profileFontOpticalSize)
+                securePrefs.setProfileBio(linkedProfile.profileBio)
                 database.profileDao().insertOrUpdate(
                     ProfileEntity(
                         id = linkedProfile.id,
@@ -149,7 +218,14 @@ class AuthRepository(
                         displayName = displayName.trim(),
                         tag = cleanTag,
                         avatarPath = null,
-                        authUserId = authUserId
+                        authUserId = authUserId,
+                        profileBackground = profileAppearance().background,
+                        profileFont = profileAppearance().fontId,
+                        profileFontWidth = profileAppearance().width,
+                        profileFontGrade = profileAppearance().grade,
+                        profileFontWeight = profileAppearance().weight,
+                        profileFontOpticalSize = profileAppearance().opticalSize,
+                        profileBio = profileAppearance().bio
                     )
                 )
             }
@@ -173,7 +249,14 @@ class AuthRepository(
                     displayName = displayName.trim(),
                     tag = cleanTag,
                     avatarPath = avatarUrl,
-                    authUserId = authUserId
+                    authUserId = authUserId,
+                    profileBackground = profileAppearance().background,
+                    profileFont = profileAppearance().fontId,
+                    profileFontWidth = profileAppearance().width,
+                    profileFontGrade = profileAppearance().grade,
+                    profileFontWeight = profileAppearance().weight,
+                    profileFontOpticalSize = profileAppearance().opticalSize,
+                    profileBio = profileAppearance().bio
                 )
                 client.postgrest["profiles"].upsert(profileDto)
 
@@ -230,7 +313,14 @@ class AuthRepository(
                     displayName = displayName.trim(),
                     tag = cleanTag,
                     avatarPath = avatarUrl,
-                    authUserId = securePrefs.getSupabaseAuthUserId()
+                    authUserId = securePrefs.getSupabaseAuthUserId(),
+                    profileBackground = profileAppearance().background,
+                    profileFont = profileAppearance().fontId,
+                    profileFontWidth = profileAppearance().width,
+                    profileFontGrade = profileAppearance().grade,
+                    profileFontWeight = profileAppearance().weight,
+                    profileFontOpticalSize = profileAppearance().opticalSize,
+                    profileBio = profileAppearance().bio
                 )
                 client.postgrest["profiles"].upsert(profileDto)
             }
@@ -297,7 +387,14 @@ class AuthRepository(
                 displayName = displayName,
                 tag = tag,
                 avatarPath = avatarUrl,
-                authUserId = securePrefs.getSupabaseAuthUserId()
+                authUserId = securePrefs.getSupabaseAuthUserId(),
+                profileBackground = profileAppearance().background,
+                profileFont = profileAppearance().fontId,
+                profileFontWidth = profileAppearance().width,
+                profileFontGrade = profileAppearance().grade,
+                profileFontWeight = profileAppearance().weight,
+                profileFontOpticalSize = profileAppearance().opticalSize,
+                profileBio = profileAppearance().bio
             )
             client.postgrest["profiles"].upsert(profileDto)
 

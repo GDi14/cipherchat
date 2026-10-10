@@ -42,7 +42,6 @@ import com.example.ui.M3AppSettingsPage
 import com.example.ui.M3FriendsTab
 import com.example.ui.M3NotificationsPage
 import com.example.ui.M3ProfileTab
-import com.example.ui.M3SettingsPage
 import com.example.ui.OnboardingScreen
 import com.example.ui.OnboardingViewModel
 import com.example.ui.PublicProfilePage
@@ -62,7 +61,6 @@ sealed interface AppScreen {
     data object NewGroup : AppScreen { override val level: Int = 2 }
     data object AddFriends : AppScreen { override val level: Int = 2 }
     data object Notifications : AppScreen { override val level: Int = 2 }
-    data object Settings : AppScreen { override val level: Int = 2 }
     data object AppSettings : AppScreen { override val level: Int = 3 }
     data object ProfileSettings : AppScreen { override val level: Int = 3 }
     data class UserProfile(val userId: String) : AppScreen { override val level: Int = 3 }
@@ -77,7 +75,6 @@ private val AppScreenSaver = Saver<AppScreen, String>(
             AppScreen.NewGroup -> "new_group"
             AppScreen.AddFriends -> "friends"
             AppScreen.Notifications -> "notifications"
-            AppScreen.Settings -> "settings"
             AppScreen.AppSettings -> "app_settings"
             AppScreen.ProfileSettings -> "profile_settings"
             is AppScreen.UserProfile -> "user_profile:${screen.userId}"
@@ -90,7 +87,6 @@ private val AppScreenSaver = Saver<AppScreen, String>(
             saved == "new_group" -> AppScreen.NewGroup
             saved == "friends" -> AppScreen.AddFriends
             saved == "notifications" -> AppScreen.Notifications
-            saved == "settings" -> AppScreen.Settings
             saved == "app_settings" -> AppScreen.AppSettings
             saved == "profile_settings" -> AppScreen.ProfileSettings
             saved.startsWith("user_profile:") -> AppScreen.UserProfile(saved.removePrefix("user_profile:"))
@@ -178,7 +174,7 @@ class MainActivity : ComponentActivity() {
                         enabled = currentScreen != AppScreen.Home && currentScreen != AppScreen.Onboarding
                     ) {
                         currentScreen = when (currentScreen) {
-                            AppScreen.AppSettings, AppScreen.ProfileSettings -> AppScreen.Settings
+                            AppScreen.AppSettings, AppScreen.ProfileSettings -> AppScreen.Home
                             is AppScreen.UserProfile -> profileReturnScreen
                             else -> AppScreen.Home
                         }
@@ -230,7 +226,8 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onOpenAddFriends = { currentScreen = AppScreen.AddFriends },
                                     onOpenNotifications = { currentScreen = AppScreen.Notifications },
-                                    onOpenSettings = { currentScreen = AppScreen.Settings },
+                                    onOpenAppSettings = { currentScreen = AppScreen.AppSettings },
+                                    onOpenProfileSettings = { currentScreen = AppScreen.ProfileSettings },
                                     onOpenProfile = { userId ->
                                         profileReturnScreen = AppScreen.Home
                                         currentScreen = AppScreen.UserProfile(userId)
@@ -249,6 +246,7 @@ class MainActivity : ComponentActivity() {
                                 )
                                 ChatScreen(
                                     viewModel = chatViewModel,
+                                    friendRepository = friendRepository,
                                     onBack = {
                                         currentScreen = AppScreen.Home
                                     },
@@ -298,22 +296,15 @@ class MainActivity : ComponentActivity() {
                                 val requests by homeViewModel.pendingRequests.collectAsState()
                                 M3NotificationsPage(homeViewModel, requests) { currentScreen = AppScreen.Home }
                             }
-                            is AppScreen.Settings -> {
-                                M3SettingsPage(
-                                    onBack = { currentScreen = AppScreen.Home },
-                                    onOpenProfileSettings = { currentScreen = AppScreen.ProfileSettings },
-                                    onOpenAppSettings = { currentScreen = AppScreen.AppSettings }
-                                )
-                            }
                             is AppScreen.AppSettings -> {
                                 val homeViewModel: HomeViewModel = viewModel(factory = HomeViewModel.Factory(
                                     authRepository, friendRepository, chatRepository, supabaseProvider))
-                                M3AppSettingsPage(homeViewModel) { currentScreen = AppScreen.Settings }
+                                M3AppSettingsPage(homeViewModel) { currentScreen = AppScreen.Home }
                             }
                             is AppScreen.ProfileSettings -> {
                                 val homeViewModel: HomeViewModel = viewModel(factory = HomeViewModel.Factory(
                                     authRepository, friendRepository, chatRepository, supabaseProvider))
-                                M3ProfileTab(homeViewModel, onBack = { currentScreen = AppScreen.Settings })
+                                M3ProfileTab(homeViewModel, onBack = { currentScreen = AppScreen.Home })
                             }
                             is AppScreen.UserProfile -> {
                                 val homeViewModel: HomeViewModel = viewModel(factory = HomeViewModel.Factory(

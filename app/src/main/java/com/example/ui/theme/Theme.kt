@@ -128,13 +128,13 @@ fun ExpressivePagesTheme(content: @Composable () -> Unit) {
             onSurfaceVariant = Color(0xFFE4C9EA),
             outline = PageDarkOutline,
             outlineVariant = PageDarkOutlineVariant,
-            surfaceContainerLowest = Color(0xFF110316),
+            surfaceContainerLowest = BrandBlack,
             surfaceContainerLow = PageDarkSurfaceLow,
             surfaceContainer = PageDarkSurface,
             surfaceContainerHigh = PageDarkSurfaceHigh,
-            surfaceContainerHighest = Color(0xFF4B2056),
-            surfaceDim = Color(0xFF19071F),
-            surfaceBright = Color(0xFF493150)
+            surfaceContainerHighest = ExpressiveDarkSurfaceContainerHighest,
+            surfaceDim = ExpressiveDarkBackground,
+            surfaceBright = Color(0xFF454A54)
         )
     } else {
         lightColorScheme(

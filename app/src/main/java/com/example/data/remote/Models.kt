@@ -14,9 +14,26 @@ data class ProfileDto(
     @Json(name = "display_name") @SerialName("display_name") val displayName: String,
     @Json(name = "tag") val tag: String,
     @Json(name = "avatar_path") @SerialName("avatar_path") val avatarPath: String? = null,
+    @Json(name = "profile_background") @SerialName("profile_background") val profileBackground: String = "#C987FA",
+    @Json(name = "profile_font") @SerialName("profile_font") val profileFont: String = "roboto_flex",
+    @Json(name = "profile_font_width") @SerialName("profile_font_width") val profileFontWidth: Float = 100f,
+    @Json(name = "profile_font_grade") @SerialName("profile_font_grade") val profileFontGrade: Int = 0,
+    @Json(name = "profile_font_weight") @SerialName("profile_font_weight") val profileFontWeight: Int = 650,
+    @Json(name = "profile_font_opsz") @SerialName("profile_font_opsz") val profileFontOpticalSize: Float = 14f,
+    @Json(name = "profile_bio") @SerialName("profile_bio") val profileBio: String = "",
     @Json(name = "auth_user_id") @SerialName("auth_user_id") val authUserId: String? = null,
     @Json(name = "created_at") @SerialName("created_at") val createdAt: String? = null,
     @Json(name = "updated_at") @SerialName("updated_at") val updatedAt: String? = null
+)
+
+data class ProfileAppearance(
+    val background: String = "#C987FA",
+    val fontId: String = "roboto_flex",
+    val width: Float = 100f,
+    val grade: Int = 0,
+    val weight: Int = 650,
+    val opticalSize: Float = 14f,
+    val bio: String = ""
 )
 
 @JsonClass(generateAdapter = true)

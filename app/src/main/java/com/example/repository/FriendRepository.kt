@@ -113,6 +113,15 @@ class FriendRepository(
         }.getOrNull()
     }
 
+    suspend fun getRemoteProfileById(userId: String): ProfileDto? = withContext(Dispatchers.IO) {
+        if (!supabaseProvider.isConfigured) return@withContext null
+        runCatching {
+            supabaseProvider.getClient().postgrest["profiles"].select {
+                filter { eq("id", userId) }
+            }.decodeList<ProfileDto>().firstOrNull()
+        }.getOrNull()
+    }
+
     /**
      * Search user by exact tag.
      */
@@ -231,6 +240,7 @@ class FriendRepository(
                     senderTag = targetTag,
                     status = "pending",
                     isIncoming = false,
+                    avatarPath = database.profileDao().getProfileById(targetUserId)?.avatarPath,
                     timestamp = System.currentTimeMillis()
                 )
             )
@@ -362,6 +372,7 @@ class FriendRepository(
                         senderTag = senderTag,
                         status = req.status,
                         isIncoming = true,
+                        avatarPath = sender?.avatarPath,
                         timestamp = System.currentTimeMillis()
                     )
                 )
@@ -406,6 +417,7 @@ class FriendRepository(
                         senderTag = receiverTag,
                         status = req.status,
                         isIncoming = false,
+                        avatarPath = receiver?.avatarPath,
                         timestamp = System.currentTimeMillis()
                     )
                 )

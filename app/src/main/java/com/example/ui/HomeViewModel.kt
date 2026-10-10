@@ -8,6 +8,7 @@ import com.example.data.local.ConversationEntity
 import com.example.data.local.FriendRequestEntity
 import com.example.data.local.ProfileEntity
 import com.example.data.remote.SupabaseClientProvider
+import com.example.data.remote.ProfileAppearance
 import com.example.repository.AuthRepository
 import com.example.repository.ChatRepository
 import com.example.repository.FriendRepository
@@ -22,6 +23,7 @@ data class HomeUiState(
     val selectedTab: Int = 0, // 0: Chats, 1: Groups, 2: Calls
     val favoriteFriendIds: Set<String> = emptySet(),
     val voiceOfUserEnabled: Boolean = true,
+    val profileAppearance: ProfileAppearance = ProfileAppearance(),
     val searchTag: String = "",
     val searchResult: ProfileEntity? = null,
     val isSearching: Boolean = false,
@@ -58,6 +60,7 @@ class HomeViewModel(
         HomeUiState(
             favoriteFriendIds = authRepository.getFavoriteFriendIds(),
             voiceOfUserEnabled = authRepository.isVoiceOfUserEnabled(),
+            profileAppearance = authRepository.profileAppearance(),
             isSupabaseConfigured = supabaseProvider.isConfigured,
             supabaseUrlInput = supabaseProvider.currentUrl,
             supabaseKeyInput = supabaseProvider.currentAnonKey
@@ -103,6 +106,20 @@ class HomeViewModel(
         authRepository.setVoiceOfUserEnabled(enabled)
         chatRepository.setVoiceOfUserEnabled(enabled)
         _uiState.value = _uiState.value.copy(voiceOfUserEnabled = enabled)
+    }
+
+    fun updateProfileAppearance(appearance: ProfileAppearance) {
+        authRepository.storeProfileAppearance(appearance)
+        _uiState.value = _uiState.value.copy(profileAppearance = appearance, statusMessage = null, errorMessage = null)
+    }
+
+    fun publishProfileAppearance() {
+        val appearance = _uiState.value.profileAppearance
+        viewModelScope.launch {
+            authRepository.saveProfileAppearance(appearance)
+                .onSuccess { _uiState.value = _uiState.value.copy(statusMessage = "Profile appearance saved and shared.") }
+                .onFailure { error -> _uiState.value = _uiState.value.copy(errorMessage = error.localizedMessage ?: "Couldn't publish profile appearance") }
+        }
     }
 
     fun onSearchTagChanged(tag: String) {
