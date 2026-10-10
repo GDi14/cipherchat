@@ -15,7 +15,6 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -156,6 +155,8 @@ import com.example.ui.components.ExpressiveFabMenu
 import com.example.ui.components.ExpressiveContainedLoadingIndicator
 import com.example.ui.components.FabMenuItem
 import com.example.ui.theme.ExpressiveTopSurfaceShape
+import com.example.ui.theme.ExpressiveMotion
+import com.example.ui.theme.GoogleSansFlexHeadline
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -251,13 +252,23 @@ fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, o
                         Modifier.fillMaxWidth().height(88.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text("CIPHER CHAT  ·  PRIVATE BY DESIGN", style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary)
+                        Row(
+                            Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            AsyncImage(
+                                model = com.example.R.drawable.cipher_chat_logo,
+                                contentDescription = "CypherChat logo",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.size(36.dp).clip(MaterialTheme.shapes.small)
+                            )
                             Text(
                                 when (state.selectedTab) { 1 -> "Your groups"; 2 -> "Calls"; else -> "Messages" },
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = MaterialTheme.colorScheme.onSurface
+                                style = MaterialTheme.typography.headlineSmall.copy(fontFamily = GoogleSansFlexHeadline),
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                         IconButton(onClick = onOpenNotifications, modifier = Modifier.testTag("notifications_action")) {
@@ -272,22 +283,21 @@ fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, o
                             DropdownMenu(
                                 expanded = settingsMenuExpanded,
                                 onDismissRequest = { settingsMenuExpanded = false },
-                                modifier = Modifier.width(240.dp).padding(vertical = 6.dp)
+                                shape = MaterialTheme.shapes.extraLarge,
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                             ) {
                                 DropdownMenuItem(
                                     text = { Text("App") },
                                     leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
                                     onClick = { settingsMenuExpanded = false; onOpenAppSettings() },
-                                    modifier = Modifier.testTag("settings_menu_app"),
-                                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp)
+                                    modifier = Modifier.testTag("settings_menu_app")
                                 )
                                 HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
                                 DropdownMenuItem(
                                     text = { Text("Profile") },
                                     leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
                                     onClick = { settingsMenuExpanded = false; onOpenProfileSettings() },
-                                    modifier = Modifier.testTag("settings_menu_profile"),
-                                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp)
+                                    modifier = Modifier.testTag("settings_menu_profile")
                                 )
                             }
                         }
@@ -333,13 +343,13 @@ fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, o
                     transitionSpec = {
                         val direction = if (targetState > initialState) 1 else -1
                         (slideInHorizontally(
-                            animationSpec = tween(240, easing = FastOutSlowInEasing),
+                            animationSpec = tween(ExpressiveMotion.DurationMedium1, easing = ExpressiveMotion.EmphasizedDecelerateEasing),
                             initialOffsetX = { width -> direction * width / 5 }
-                        ) + fadeIn(animationSpec = tween(180))) togetherWith
+                        ) + fadeIn(animationSpec = tween(ExpressiveMotion.DurationShort4))) togetherWith
                             (slideOutHorizontally(
-                                animationSpec = tween(200, easing = FastOutSlowInEasing),
+                                animationSpec = tween(ExpressiveMotion.DurationShort4, easing = ExpressiveMotion.EmphasizedAccelerateEasing),
                                 targetOffsetX = { width -> -direction * width / 6 }
-                            ) + fadeOut(animationSpec = tween(140)))
+                            ) + fadeOut(animationSpec = tween(ExpressiveMotion.DurationShort3)))
                     },
                     label = "home_destination"
                 ) { tab ->
@@ -455,11 +465,11 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                         visible = filter == 0 && query.isBlank(),
                         enter = expandVertically(
                             expandFrom = Alignment.Top,
-                            animationSpec = tween(320, easing = FastOutSlowInEasing)
-                        ) + fadeIn(animationSpec = tween(180)),
-                        exit = fadeOut(animationSpec = tween(120)) + shrinkVertically(
+                            animationSpec = tween(ExpressiveMotion.DurationMedium2, easing = ExpressiveMotion.EmphasizedDecelerateEasing)
+                        ) + fadeIn(animationSpec = tween(ExpressiveMotion.DurationShort4)),
+                        exit = fadeOut(animationSpec = tween(ExpressiveMotion.DurationShort2)) + shrinkVertically(
                             shrinkTowards = Alignment.Top,
-                            animationSpec = tween(240, easing = FastOutSlowInEasing)
+                            animationSpec = tween(ExpressiveMotion.DurationMedium1, easing = ExpressiveMotion.EmphasizedAccelerateEasing)
                         )
                     ) {
                         Surface(
@@ -501,14 +511,14 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                                                 shape = CircleShape,
                                                 color = Color.Transparent,
                                                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                modifier = Modifier.width(96.dp).testTag("circle_friend_${friend.id}")
+                                            modifier = Modifier.width(112.dp).testTag("circle_friend_${friend.id}")
                                             ) {
                                                 Column(
                                                     Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
                                                     horizontalAlignment = Alignment.CenterHorizontally,
                                                     verticalArrangement = Arrangement.spacedBy(6.dp)
                                                 ) {
-                                                    ExpressiveAvatar(friend.displayName, friend.avatarPath, 56.dp,
+                                                    ExpressiveAvatar(friend.displayName, friend.avatarPath, 72.dp,
                                                         modifier = Modifier.clickable { onOpenProfile(friend.id) })
                                                     Text(friend.displayName, style = MaterialTheme.typography.labelSmall,
                                                         maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1022,9 +1032,8 @@ private fun ProfileAppearanceSettings(
                         previewName.ifBlank { "Your name" },
                         weight = profilePreviewWeight(appearance),
                         modifier = Modifier.graphicsLayer { scaleX = appearance.width / 100f },
-                        style = MaterialTheme.typography.titleLarge.copy(
+                        style = MaterialTheme.typography.headlineMedium.copy(
                             fontFamily = previewFont,
-                            fontSize = 28.sp,
                             letterSpacing = (-0.6).sp
                         ),
                         color = previewInk,

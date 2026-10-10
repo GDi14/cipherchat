@@ -1,5 +1,5 @@
 {
-  "name": "ShieldChat",
+  "name": "CypherChat",
   "description": "End-to-end encrypted messaging with libsignal protocol and Supabase.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

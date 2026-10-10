@@ -68,5 +68,5 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`CipherChat preview server listening on port ${PORT}`);
+  console.log(`CypherChat preview server listening on port ${PORT}`);
 });

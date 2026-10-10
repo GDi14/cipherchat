@@ -352,13 +352,12 @@ private fun M3WelcomeOnboarding(onGetStarted: () -> Unit, onLogin: () -> Unit) {
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(20.dp)
                     ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                            contentColor = MaterialTheme.colorScheme.primary
-                        ) {
-                            Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.padding(18.dp).size(32.dp))
-                        }
+                        AsyncImage(
+                            model = com.example.R.drawable.cipher_chat_logo,
+                            contentDescription = "CypherChat logo",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.size(72.dp).clip(CircleShape)
+                        )
                         Text("PRIVATE, FROM THE FIRST HELLO", style = MaterialTheme.typography.labelLarge)
                         Text(
                             "Your people.\nYour privacy.",
@@ -367,7 +366,7 @@ private fun M3WelcomeOnboarding(onGetStarted: () -> Unit, onLogin: () -> Unit) {
                             textAlign = TextAlign.Center
                         )
                         Text(
-                            "CipherChat keeps conversations close and message keys on your device.",
+                            "CypherChat keeps conversations close and message keys on your device.",
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.82f),
                             textAlign = TextAlign.Center

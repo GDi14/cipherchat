@@ -7,7 +7,6 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -48,7 +47,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -126,8 +124,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.ui.theme.ExpressiveMotion
-import com.example.ui.theme.BrandBlack
-import com.example.ui.theme.KleinBlue
+import com.example.ui.theme.ExpressiveBottomSurfaceShape
+import com.example.ui.theme.ExpressiveTopSurfaceShape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -185,10 +183,6 @@ private data class SendFlight(
     val textWidth: Float = start.width,
     val bubbleHeight: Float = start.height
 )
-
-private val IMessageOutgoing = KleinBlue
-private val IMessageIncoming = Color(0xFF292124)
-private val IMessageComposer = Color(0xFF292124)
 
 private fun Rect.relativeTo(origin: Offset) = Rect(
     left = left - origin.x,
@@ -344,8 +338,8 @@ fun ChatScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             Surface(
-                shape = RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp),
-                color = Color.Black.copy(alpha = 0.48f)
+                shape = ExpressiveBottomSurfaceShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.96f)
             ) {
             TopAppBar(
                 navigationIcon = {
@@ -496,15 +490,15 @@ fun ChatScreen(
                 item(key = "typing_indicator") {
                     AnimatedVisibility(
                         visible = isSomeoneTyping,
-                        enter = fadeIn(animationSpec = tween(180, easing = FastOutSlowInEasing)) +
+                        enter = fadeIn(animationSpec = tween(ExpressiveMotion.DurationShort4, easing = ExpressiveMotion.EmphasizedEasing)) +
                             expandVertically(
                                 expandFrom = Alignment.Top,
-                                animationSpec = tween(180, easing = FastOutSlowInEasing)
+                                animationSpec = tween(ExpressiveMotion.DurationShort4, easing = ExpressiveMotion.EmphasizedDecelerateEasing)
                             ),
-                        exit = fadeOut(animationSpec = tween(160, easing = FastOutSlowInEasing)) +
+                        exit = fadeOut(animationSpec = tween(ExpressiveMotion.DurationShort3, easing = ExpressiveMotion.EmphasizedAccelerateEasing)) +
                             shrinkVertically(
                                 shrinkTowards = Alignment.Top,
-                                animationSpec = tween(160, easing = FastOutSlowInEasing)
+                                animationSpec = tween(ExpressiveMotion.DurationShort3, easing = ExpressiveMotion.EmphasizedAccelerateEasing)
                             )
                     ) {
                         TypingIndicatorBubble(modifier = Modifier.fillMaxWidth())
@@ -530,7 +524,7 @@ fun ChatScreen(
 
             // M3 Tonal Surface Bottom Composer
             Surface(
-                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                shape = ExpressiveTopSurfaceShape,
                 color = MaterialTheme.colorScheme.surfaceContainer,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -652,7 +646,7 @@ fun ChatScreen(
                                     modifier = Modifier
                                         .weight(1f)
                                         .clip(PillShape)
-                                        .background(IMessageComposer.copy(alpha = 0.80f))
+                                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                                         .border(1.dp, MaterialTheme.colorScheme.outlineVariant, PillShape)
                                         .onGloballyPositioned {
                                             composerBounds = it.boundsInRoot().relativeTo(overlayOrigin)
@@ -758,8 +752,8 @@ fun ChatScreen(
                                         },
                                         enabled = !uiState.isSending,
                                         colors = IconButtonDefaults.iconButtonColors(
-                                            containerColor = if (uiState.inputText.isNotBlank()) IMessageOutgoing else MaterialTheme.colorScheme.outlineVariant,
-                                            contentColor = if (uiState.inputText.isNotBlank()) Color.White else BrandBlack
+                                            containerColor = if (uiState.inputText.isNotBlank()) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.outlineVariant,
+                                            contentColor = if (uiState.inputText.isNotBlank()) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
                                         ),
                                         modifier = Modifier
                                             .align(Alignment.CenterEnd)
@@ -770,7 +764,7 @@ fun ChatScreen(
                                     ) {
                                         if (uiState.isSending) {
                                             ExpressiveContainedLoadingIndicator(Modifier.size(26.dp),
-                                                color = Color.White, size = 17.dp)
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer, size = 17.dp)
                                         } else if (uiState.inputText.isNotBlank()) {
                                             Icon(Icons.Default.ArrowUpward, contentDescription = "Send")
                                         } else {
@@ -792,7 +786,7 @@ fun ChatScreen(
             val scrollDistance = flight.scrollDistance.coerceAtLeast(0f)
             // A single eased progress drives both the bubble and the list so they
             // decelerate together into the final resting position.
-            val flightMotion = tween<Float>(durationMillis = 420, easing = FastOutSlowInEasing)
+            val flightMotion = tween<Float>(durationMillis = ExpressiveMotion.DurationLong1, easing = ExpressiveMotion.EmphasizedEasing)
             coroutineScope {
                 val scrollMotion = launch {
                     if (scrollDistance > 1f) {
@@ -860,8 +854,8 @@ fun ChatScreen(
             val y = start.top + (end.top - start.top) * progress
             val midFlightStretch = 1f + 0.054f * kotlin.math.sin(progress * Math.PI).toFloat()
             Surface(
-                color = IMessageOutgoing,
-                contentColor = Color.White,
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 shape = if (progress < 0.16f) PillShape else ExpressiveOutgoingBubbleShape,
                 modifier = Modifier
                     .offset { IntOffset(x.roundToInt(), y.roundToInt()) }
@@ -891,7 +885,7 @@ fun ChatScreen(
                         Icon(
                             Icons.Default.Mic,
                             contentDescription = null,
-                            tint = Color.White,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp)
                         )
                     }
@@ -998,8 +992,8 @@ fun M3MessageItem(
                 verticalAlignment = Alignment.Bottom
             ) {
                 Surface(
-                    color = IMessageOutgoing,
-                    contentColor = Color.White,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                     shape = ExpressiveOutgoingBubbleShape,
                     modifier = Modifier
                         .widthIn(max = 310.dp)
@@ -1025,7 +1019,7 @@ fun M3MessageItem(
             // Incoming messages use a distinct tonal surface from sent messages.
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = IMessageIncoming,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                     contentColor = MaterialTheme.colorScheme.onSurface
                 ),
                 shape = ExpressiveIncomingBubbleShape,
@@ -1241,7 +1235,7 @@ private fun M3MessageContent(
             Text(
                 text = timeFormatted,
                 style = MaterialTheme.typography.labelSmall,
-                color = if (isOutgoing) Color.White.copy(alpha = 0.78f) else MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (isOutgoing) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f) else MaterialTheme.colorScheme.onSurfaceVariant
             )
             if (isOutgoing) {
                 Spacer(modifier = Modifier.width(4.dp))

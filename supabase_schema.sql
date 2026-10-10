@@ -1,5 +1,5 @@
 -- ==============================================================================
--- ShieldChat: End-to-End Encrypted Messenger SQL Schema for Supabase
+-- CypherChat: End-to-End Encrypted Messenger SQL Schema for Supabase
 -- Run this script in the Supabase SQL Editor.
 -- ==============================================================================
 

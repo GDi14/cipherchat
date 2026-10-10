@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -246,7 +245,7 @@ fun PublicProfilePage(
                                         ) {
                                             ProfileDetail(
                                                 title = "CONNECTION",
-                                                value = if (isFriend) "Friends" else "Cipher Chat",
+                                                value = if (isFriend) "Friends" else "CypherChat",
                                                 modifier = Modifier.padding(16.dp), appearance = profileAppearance, ink = inkColor
                                             )
                                         }
@@ -328,9 +327,8 @@ private fun ProfileDisplayName(name: String, availableWidth: Dp, appearance: Pro
         weight = appearance.effectiveProfileWeight(),
         modifier = Modifier.widthIn(max = availableWidth)
             .graphicsLayer { scaleX = appearance.width / 100f },
-        style = MaterialTheme.typography.titleLarge.copy(
+        style = MaterialTheme.typography.headlineMedium.copy(
             fontFamily = fontFamily,
-            fontSize = 28.sp,
             letterSpacing = (-0.6).sp
         ),
         color = ink,
@@ -352,7 +350,7 @@ private fun ProfilePortrait(
 ) {
     Box(
         Modifier.fillMaxWidth().height(height)
-            .clip(RoundedCornerShape(30.dp))
+            .clip(MaterialTheme.shapes.extraLarge)
             .background(ink)
     ) {
         if (!avatarUrl.isNullOrBlank()) {
