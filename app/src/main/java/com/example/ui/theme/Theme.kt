@@ -134,7 +134,7 @@ fun ExpressivePagesTheme(content: @Composable () -> Unit) {
             surfaceContainerHigh = PageDarkSurfaceHigh,
             surfaceContainerHighest = ExpressiveDarkSurfaceContainerHighest,
             surfaceDim = ExpressiveDarkBackground,
-            surfaceBright = Color(0xFF454A54)
+            surfaceBright = Color(0xFF323741)
         )
     } else {
         lightColorScheme(

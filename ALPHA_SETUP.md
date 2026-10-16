@@ -24,7 +24,10 @@ This build keeps Supabase as the database, authentication provider, realtime tra
    supabase functions deploy push-message --no-verify-jwt
    ```
 4. In Supabase Dashboard → Database → Webhooks, create an `INSERT` webhook for `public.messages`. Use URL `https://tlmxxzrgmbeojejnwebz.supabase.co/functions/v1/push-message` and custom header `x-webhook-secret` with the same value as `DATABASE_WEBHOOK_SECRET`. The function excludes the sender and sends only a conversation ID; it never sends message contents.
-5. Apply the SQL schema so `device_tokens` exists and owner-scoped RLS is active. On Android 13+, users must enable notification permission in App settings.
+5. Apply the latest SQL schema so `device_tokens` exists, owner-scoped RLS is active, `prekeys.device_id` is present, and the atomic `consume_one_time_prekey` RPC is installed. A profile currently has one active encryption device: signing the same profile in on a different device rotates its published identity/prekeys, and the other participant must verify the new fingerprint and reset the secure session. Messages encrypted to a lost device key cannot be recovered. On Android 13+, users must enable notification permission in App settings.
+6. In Firebase, verify the Android package and signing SHA-1 for the exact APK being tested. The FCM service-account `project_id` must match the Firebase project that issued Android registration tokens. Confirm each recipient has a current `device_tokens` row and the database webhook targets the deployed `push-message` function.
+
+Messages are cached in Room. A data-only FCM push triggers a Supabase catch-up while the app is backgrounded, and returning to the app triggers another catch-up and reconnects Realtime. Push delivery still depends on the database webhook and Edge Function being deployed and configured as above. Check Edge Function invocation logs for `no_registered_devices` or FCM send failures, and Logcat for `FCM token registered`, `FCM message received`, and `IncomingMessageSync` entries. Android force-stop and manufacturer battery restrictions can delay or stop background delivery.
 
 ## Wipe the current alpha/test data
 

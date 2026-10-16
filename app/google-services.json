@@ -1,20 +1,20 @@
 {
   "project_info": {
-    "project_number": "879999352362",
-    "project_id": "cipherchat-510913",
-    "storage_bucket": "cipherchat-510913.firebasestorage.app"
+    "project_number": "620590801328",
+    "project_id": "cipherchat-510915",
+    "storage_bucket": "cipherchat-510915.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:879999352362:android:52b7ed948b1a82475a0d53",
+        "mobilesdk_app_id": "1:620590801328:android:d4405c84d357e8ef68b675",
         "android_client_info": {
           "package_name": "com.gd.cipherchat"
         }
       },
       "oauth_client": [
         {
-          "client_id": "879999352362-l293vvh1ghmqf132jlaqkvpd1o3msuvm.apps.googleusercontent.com",
+          "client_id": "620590801328-0qgenc95pr07pd8fesld1iktrq2g1uej.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.gd.cipherchat",
@@ -22,20 +22,20 @@
           }
         },
         {
-          "client_id": "879999352362-a1emsigff529jijgd1p6kam6okfn5n54.apps.googleusercontent.com",
+          "client_id": "620590801328-ttg7uqmdorss6ji8cd788rke8bblhhv0.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "AIzaSyDz9JJy-o31MmjH-RL4Y9szKpF2ZKz31Qc"
+          "current_key": "AIzaSyDVsTNJdb5SCxhgTxp3GOHpc6tgsJuGdIs"
         }
       ],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "879999352362-a1emsigff529jijgd1p6kam6okfn5n54.apps.googleusercontent.com",
+              "client_id": "620590801328-ttg7uqmdorss6ji8cd788rke8bblhhv0.apps.googleusercontent.com",
               "client_type": 3
             }
           ]

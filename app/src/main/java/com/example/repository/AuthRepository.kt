@@ -23,6 +23,7 @@ import kotlinx.serialization.json.Json
 import java.io.File
 import java.util.UUID
 import android.util.Log
+import android.util.Base64
 
 class AuthRepository(
     private val context: Context,
@@ -145,6 +146,7 @@ class AuthRepository(
                     )
                 )
                 runCatching { PushTokenRegistrar.register(context, securePrefs, supabaseProvider) }
+                    .onFailure { Log.e("PushTokenRegistrar", "FCM token registration failed after sign-in", it) }
                 Result.success(true)
             } else {
                 if (securePrefs.isRegistered()) {
@@ -262,6 +264,7 @@ class AuthRepository(
 
                 val prekeyDto = PrekeyDto(
                     userId = myUserId,
+                    deviceId = myDeviceId,
                     identityKey = bundle.identityKey,
                     registrationId = bundle.registrationId,
                     signedPrekeyId = bundle.signedPrekeyId,
@@ -284,6 +287,8 @@ class AuthRepository(
                 )
             )
             runCatching { PushTokenRegistrar.register(context, securePrefs, supabaseProvider) }
+                .onFailure { Log.e("PushTokenRegistrar", "FCM token registration failed after profile setup", it) }
+                .onFailure { Log.e("PushTokenRegistrar", "FCM token registration failed after profile setup", it) }
 
             Result.success(Unit)
         } catch (e: Exception) {
@@ -364,10 +369,7 @@ class AuthRepository(
         }
     }
 
-    /**
-     * Publishes the user's profile and libsignal public prekey bundle to Supabase.
-     * Can be invoked at app launch or when Supabase credentials are updated in Settings.
-     */
+    /** Publishes the profile and ensures public Signal keys exist without rotating them on launch. */
     suspend fun syncProfileToSupabase(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             if (!supabaseProvider.isConfigured) {
@@ -377,8 +379,6 @@ class AuthRepository(
             val displayName = securePrefs.getDisplayName() ?: return@withContext Result.success(Unit)
             val tag = securePrefs.getTag() ?: return@withContext Result.success(Unit)
             val avatarUrl = securePrefs.getAvatarPath()
-
-            val bundle = signalManager.generatePublicPrekeyBundle()
 
             val client = supabaseProvider.getClient()
             val profileDto = ProfileDto(
@@ -398,16 +398,34 @@ class AuthRepository(
             )
             client.postgrest["profiles"].upsert(profileDto)
 
-            val prekeyDto = PrekeyDto(
-                userId = myUserId,
-                identityKey = bundle.identityKey,
-                registrationId = bundle.registrationId,
-                signedPrekeyId = bundle.signedPrekeyId,
-                signedPrekey = bundle.signedPrekey,
-                signedPrekeySignature = bundle.signedPrekeySignature,
-                oneTimePrekeys = bundle.oneTimePrekeys
+            // Do not rotate keys on routine launches. Rotate when the account has moved to a
+            // different local device or when its published identity no longer matches the private
+            // identity persisted locally (for example after reinstall or Keystore recovery).
+            val existingKeys = client.postgrest["prekeys"].select {
+                filter { eq("user_id", myUserId) }
+            }.decodeList<PrekeyDto>().firstOrNull()
+            val localIdentityKey = Base64.encodeToString(
+                signalManager.localIdentityKeyPair.publicKey.serialize(),
+                Base64.NO_WRAP
             )
-            client.postgrest["prekeys"].upsert(prekeyDto)
+            if (existingKeys == null ||
+                existingKeys.deviceId != myDeviceId ||
+                existingKeys.identityKey != localIdentityKey
+            ) {
+                val bundle = signalManager.generatePublicPrekeyBundle()
+                client.postgrest["prekeys"].upsert(
+                    PrekeyDto(
+                        userId = myUserId,
+                        deviceId = myDeviceId,
+                        identityKey = bundle.identityKey,
+                        registrationId = bundle.registrationId,
+                        signedPrekeyId = bundle.signedPrekeyId,
+                        signedPrekey = bundle.signedPrekey,
+                        signedPrekeySignature = bundle.signedPrekeySignature,
+                        oneTimePrekeys = bundle.oneTimePrekeys
+                    )
+                )
+            }
 
             Result.success(Unit)
         } catch (e: Exception) {

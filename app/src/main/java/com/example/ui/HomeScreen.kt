@@ -3,6 +3,9 @@ package com.example.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -16,6 +19,8 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -31,6 +36,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -113,8 +119,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.material3.BadgedBox
 import androidx.core.content.ContextCompat
+import com.example.data.local.SecurePreferencesManager
+import com.example.ui.dock.EdgeDockService
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -122,10 +130,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -137,6 +148,13 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.local.ConversationEntity
@@ -146,23 +164,29 @@ import com.example.data.remote.ProfileAppearance
 import com.example.utils.AppUpdater
 import com.example.ui.typography.ChatFontOption
 import kotlinx.coroutines.launch
-import com.example.ui.components.AppNavigationBar
 import com.example.ui.components.AppNavigationDestination
-import com.example.ui.components.AppNavigationRail
 import com.example.ui.components.ExpressiveAvatar
+import com.example.ui.components.FluidSidebarDock
+import com.example.ui.model.DockCategory
 import com.example.ui.components.ExpressiveEmptyState
 import com.example.ui.components.ExpressiveFabMenu
 import com.example.ui.components.ExpressiveContainedLoadingIndicator
 import com.example.ui.components.FabMenuItem
 import com.example.ui.theme.ExpressiveTopSurfaceShape
+import com.example.ui.theme.ExpressiveCardShape
+import com.example.ui.theme.ExpressiveButtonShape
 import com.example.ui.theme.ExpressiveMotion
 import com.example.ui.theme.GoogleSansFlexHeadline
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.text.ExperimentalTextApi
+import com.example.R
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlin.math.roundToInt
+
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -179,6 +203,7 @@ fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, o
     var settingsMenuExpanded by remember { mutableStateOf(false) }
     var pageSearchQuery by remember { mutableStateOf("") }
     var homeHeaderHeightPx by remember { mutableIntStateOf(0) }
+    var yourCircleCenterYInRootPx by remember { mutableIntStateOf(0) }
     var chatSurfaceExpansionPx by remember { mutableStateOf(0f) }
     var chatListHasOverflow by remember { mutableStateOf(false) }
     val chatListState = rememberLazyListState()
@@ -209,7 +234,6 @@ fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, o
             }
         }
     }
-    val wide = LocalConfiguration.current.screenWidthDp >= 600
     val unreadCount = remember(conversations) { conversations.sumOf { it.unreadCount } }
     val directConversations = remember(conversations) { conversations.filter { it.type == "direct" } }
     val groupConversations = remember(conversations) { conversations.filter { it.type == "group" } }
@@ -219,6 +243,16 @@ fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, o
             AppNavigationDestination("Groups", Icons.Default.GroupAdd, Icons.Outlined.GroupAdd, 0, "tab_groups"),
             AppNavigationDestination("Calls", Icons.Default.Call, Icons.Outlined.Call, 0, "tab_calls")
         )
+    }
+    val navigationDockItems = remember(destinations) {
+        destinations.map { destination ->
+            DockCategory(
+                id = "tab_${destination.label.lowercase()}",
+                shortLabel = destination.label.take(1),
+                fullTitle = destination.label,
+                icon = destination.icon
+            )
+        }
     }
 
     LaunchedEffect(state.errorMessage) {
@@ -235,141 +269,164 @@ fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, o
         }
     }
 
-    Scaffold(
-        modifier = Modifier.nestedScroll(homeScrollConnection),
-        containerColor = MaterialTheme.colorScheme.surface,
-        snackbarHost = { SnackbarHost(snackbar) },
-        topBar = {
-            Surface(
-                color = MaterialTheme.colorScheme.surface,
-                modifier = Modifier
-                    .windowInsetsPadding(WindowInsets.statusBars)
-                    .onSizeChanged { homeHeaderHeightPx = it.height }
-                    .graphicsLayer { translationY = if (state.selectedTab == 0) -chatSurfaceExpansionPx else 0f }
-            ) {
-                Column(Modifier.widthIn(max = 1040.dp).fillMaxWidth().padding(horizontal = 20.dp)) {
-                    Row(
-                        Modifier.fillMaxWidth().height(88.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+    Box(Modifier.fillMaxSize()) {
+        Scaffold(
+            modifier = Modifier.nestedScroll(homeScrollConnection),
+            containerColor = MaterialTheme.colorScheme.surface,
+            snackbarHost = { SnackbarHost(snackbar) },
+            topBar = {
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .onSizeChanged { homeHeaderHeightPx = it.height }
+                        .graphicsLayer { translationY = if (state.selectedTab == 0) -chatSurfaceExpansionPx else 0f }
+                ) {
+                    Column(Modifier.widthIn(max = 1040.dp).fillMaxWidth().padding(horizontal = 20.dp)) {
                         Row(
-                            Modifier.weight(1f),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            Modifier.fillMaxWidth().height(88.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            AsyncImage(
-                                model = com.example.R.drawable.cipher_chat_logo,
-                                contentDescription = "CypherChat logo",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.size(36.dp).clip(MaterialTheme.shapes.small)
-                            )
-                            Text(
-                                when (state.selectedTab) { 1 -> "Your groups"; 2 -> "Calls"; else -> "Messages" },
-                                style = MaterialTheme.typography.headlineSmall.copy(fontFamily = GoogleSansFlexHeadline),
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        IconButton(onClick = onOpenNotifications, modifier = Modifier.testTag("notifications_action")) {
-                            androidx.compose.material3.BadgedBox(badge = { if (requests.isNotEmpty()) Badge { Text("${requests.size}") } }) {
-                                Icon(Icons.Default.Notifications, contentDescription = "Notifications")
-                            }
-                        }
-                        Box {
-                            IconButton(onClick = { settingsMenuExpanded = true }, modifier = Modifier.testTag("settings_action")) {
-                                Icon(Icons.Default.Settings, contentDescription = "Settings")
-                            }
-                            DropdownMenu(
-                                expanded = settingsMenuExpanded,
-                                onDismissRequest = { settingsMenuExpanded = false },
-                                shape = MaterialTheme.shapes.extraLarge,
-                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                            Row(
+                                Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                DropdownMenuItem(
-                                    text = { Text("App") },
-                                    leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                                    onClick = { settingsMenuExpanded = false; onOpenAppSettings() },
-                                    modifier = Modifier.testTag("settings_menu_app")
+                                AsyncImage(
+                                    model = R.drawable.cipher_chat_logo,
+                                    contentDescription = "CypherChat logo",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.size(36.dp).clip(MaterialTheme.shapes.small)
                                 )
-                                HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                                DropdownMenuItem(
-                                    text = { Text("Profile") },
-                                    leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
-                                    onClick = { settingsMenuExpanded = false; onOpenProfileSettings() },
-                                    modifier = Modifier.testTag("settings_menu_profile")
+                                Text(
+                                    when (state.selectedTab) { 1 -> "Your groups"; 2 -> "Calls"; else -> "Messages" },
+                                    style = MaterialTheme.typography.headlineSmall.copy(fontFamily = GoogleSansFlexHeadline),
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            IconButton(onClick = onOpenNotifications, modifier = Modifier.testTag("notifications_action")) {
+                                    BadgedBox(badge = { if (requests.isNotEmpty()) Badge { Text("${requests.size}") } }) {
+                                        Icon(Icons.Default.Notifications, contentDescription = "Notifications")
+                                    }
+                                }
+                                Box {
+                                    IconButton(onClick = { settingsMenuExpanded = true }, modifier = Modifier.testTag("settings_action")) {
+                                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                                    }
+                                    DropdownMenu(
+                                        expanded = settingsMenuExpanded,
+                                        onDismissRequest = { settingsMenuExpanded = false },
+                                        shape = MaterialTheme.shapes.extraLarge,
+                                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("App") },
+                                            leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                                            onClick = { settingsMenuExpanded = false; onOpenAppSettings() },
+                                            modifier = Modifier.testTag("settings_menu_app")
+                                        )
+                                        HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                                        DropdownMenuItem(
+                                            text = { Text("Profile") },
+                                            leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                                            onClick = { settingsMenuExpanded = false; onOpenProfileSettings() },
+                                            modifier = Modifier.testTag("settings_menu_profile")
+                                        )
+                                    }
+                                }
+                            }
+                            Box(Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
+                                OutlinedTextField(
+                                    value = pageSearchQuery,
+                                    onValueChange = { pageSearchQuery = it },
+                                    placeholder = { Text(when (state.selectedTab) {
+                                        1 -> "Search groups"
+                                        2 -> "Search calls"
+                                        else -> "Search people or messages"
+                                    }) },
+                                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                                    singleLine = true,
+                                    shape = MaterialTheme.shapes.large,
+                                    modifier = Modifier.fillMaxWidth().height(58.dp).testTag("chat_search_input")
                                 )
                             }
                         }
                     }
-                    Box(Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
-                        OutlinedTextField(
-                            value = pageSearchQuery,
-                            onValueChange = { pageSearchQuery = it },
-                            placeholder = { Text(when (state.selectedTab) {
-                                1 -> "Search groups"
-                                2 -> "Search calls"
-                                else -> "Search people or messages"
-                            }) },
-                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                            singleLine = true,
-                            shape = MaterialTheme.shapes.large,
-                            modifier = Modifier.fillMaxWidth().height(58.dp).testTag("chat_search_input")
+                },
+                bottomBar = {},
+                floatingActionButton = {
+                    ExpressiveFabMenu(
+                        expanded = fabOpen,
+                        onToggleExpanded = { fabOpen = !fabOpen },
+                        onDismiss = { fabOpen = false },
+                        items = listOf(
+                            FabMenuItem("new_group", "Create a group", Icons.Default.GroupAdd, "fab_item_new_group", onNavigateToNewGroup),
+                            FabMenuItem("add_friend", "Add friends", Icons.Default.PersonAdd, "fab_item_add_friends", onOpenAddFriends)
                         )
+                    )
+                }
+            ) { insets ->
+                Row(Modifier.fillMaxSize().padding(insets)) {
+                    Box(Modifier.weight(1f).fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                        AnimatedContent(
+                            targetState = state.selectedTab,
+                            transitionSpec = {
+                                val direction = if (targetState > initialState) 1 else -1
+                                (slideInHorizontally(
+                                    animationSpec = tween(ExpressiveMotion.DurationMedium1, easing = ExpressiveMotion.EmphasizedDecelerateEasing),
+                                    initialOffsetX = { width -> direction * width / 5 }
+                                ) + fadeIn(animationSpec = tween(ExpressiveMotion.DurationShort4))) togetherWith
+                                    (slideOutHorizontally(
+                                        animationSpec = tween(ExpressiveMotion.DurationShort4, easing = ExpressiveMotion.EmphasizedAccelerateEasing),
+                                        targetOffsetX = { width -> -direction * width / 6 }
+                                    ) + fadeOut(animationSpec = tween(ExpressiveMotion.DurationShort3)))
+                            },
+                            label = "home_destination"
+                        ) { tab ->
+                            when (tab) {
+                                1 -> M3ChatsTab(groupConversations, onOpenConversation, onNavigateToNewGroup,
+                                    state.isSyncing, viewModel::sync, scopeKey = "groups", searchQuery = pageSearchQuery,
+                                    onSearchQueryChange = { pageSearchQuery = it }, showSearchField = false, onOpenProfile = onOpenProfile)
+                                2 -> M3CallsTab(searchQuery = pageSearchQuery)
+                                else -> M3ChatsTab(directConversations, onOpenConversation, onNavigateToNewGroup,
+                                    state.isSyncing, viewModel::sync, friends, onOpenAddFriends,
+                                    state.favoriteFriendIds, scopeKey = "chats", searchQuery = pageSearchQuery,
+                                    onSearchQueryChange = { pageSearchQuery = it }, showSearchField = false, onOpenProfile = onOpenProfile,
+                                    homeListState = chatListState,
+                                    sheetExpansionPx = chatSurfaceExpansionPx,
+                                    onChatListOverflowChange = { chatListHasOverflow = it },
+                                    onYourCircleCenterMeasured = { yourCircleCenterYInRootPx = it },
+                                    onOpenConversationWithFriend = { friend ->
+                                        viewModel.openConversationWithFriend(friend, onOpenConversation)
+                                    })
+                            }
+                        }
                     }
                 }
             }
-        },
-        bottomBar = {
-            if (!wide) AppNavigationBar(state.selectedTab, viewModel::selectTab, destinations)
-        },
-        floatingActionButton = {
-            ExpressiveFabMenu(
-                    expanded = fabOpen,
-                    onToggleExpanded = { fabOpen = !fabOpen },
-                    onDismiss = { fabOpen = false },
-                    items = listOf(
-                        FabMenuItem("new_group", "Create a group", Icons.Default.GroupAdd, "fab_item_new_group", onNavigateToNewGroup),
-                        FabMenuItem("add_friend", "Add friends", Icons.Default.PersonAdd, "fab_item_add_friends", onOpenAddFriends)
-                    )
-                )
-        }
-    ) { insets ->
-        Row(Modifier.fillMaxSize().padding(insets)) {
-            if (wide) AppNavigationRail(state.selectedTab, viewModel::selectTab, destinations)
-            Box(Modifier.weight(1f).fillMaxSize().widthIn(max = 1040.dp), contentAlignment = Alignment.TopCenter) {
-                AnimatedContent(
-                    targetState = state.selectedTab,
-                    transitionSpec = {
-                        val direction = if (targetState > initialState) 1 else -1
-                        (slideInHorizontally(
-                            animationSpec = tween(ExpressiveMotion.DurationMedium1, easing = ExpressiveMotion.EmphasizedDecelerateEasing),
-                            initialOffsetX = { width -> direction * width / 5 }
-                        ) + fadeIn(animationSpec = tween(ExpressiveMotion.DurationShort4))) togetherWith
-                            (slideOutHorizontally(
-                                animationSpec = tween(ExpressiveMotion.DurationShort4, easing = ExpressiveMotion.EmphasizedAccelerateEasing),
-                                targetOffsetX = { width -> -direction * width / 6 }
-                            ) + fadeOut(animationSpec = tween(ExpressiveMotion.DurationShort3)))
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            Box(Modifier.widthIn(max = 1040.dp).fillMaxSize(), contentAlignment = Alignment.TopEnd) {
+                val dockHalfHeightPx = with(LocalDensity.current) { 73.dp.roundToPx() }
+                val selectedDestination = navigationDockItems[state.selectedTab.coerceIn(navigationDockItems.indices)]
+                FluidSidebarDock(
+                    items = navigationDockItems,
+                    selectedCategoryId = selectedDestination.id,
+                    onCategorySelected = { item ->
+                        val index = navigationDockItems.indexOfFirst { it.id == item.id }
+                        if (index >= 0) viewModel.selectTab(index)
                     },
-                    label = "home_destination"
-                ) { tab ->
-                    when (tab) {
-                        1 -> M3ChatsTab(groupConversations, onOpenConversation, onNavigateToNewGroup,
-                            state.isSyncing, viewModel::sync, scopeKey = "groups", searchQuery = pageSearchQuery,
-                            onSearchQueryChange = { pageSearchQuery = it }, showSearchField = false, onOpenProfile = onOpenProfile)
-                        2 -> M3CallsTab(searchQuery = pageSearchQuery)
-                        else -> M3ChatsTab(directConversations, onOpenConversation, onNavigateToNewGroup,
-                            state.isSyncing, viewModel::sync, friends, onOpenAddFriends,
-                            state.favoriteFriendIds, scopeKey = "chats", searchQuery = pageSearchQuery,
-                            onSearchQueryChange = { pageSearchQuery = it }, showSearchField = false, onOpenProfile = onOpenProfile,
-                            homeListState = chatListState,
-                            sheetExpansionPx = chatSurfaceExpansionPx,
-                            onChatListOverflowChange = { chatListHasOverflow = it },
-                            onOpenConversationWithFriend = { friend ->
-                                viewModel.openConversationWithFriend(friend, onOpenConversation)
-                            })
-                    }
-                }
+                    onCategoryActivated = { item ->
+                        val index = navigationDockItems.indexOfFirst { it.id == item.id }
+                        if (index >= 0) viewModel.selectTab(index)
+                    },
+                    modifier = Modifier
+                        .offset {
+                            IntOffset(x = 0, y = if (yourCircleCenterYInRootPx == 0) 0 else yourCircleCenterYInRootPx - dockHalfHeightPx)
+                        }
+                        .testTag("navigation_sidebar_dock")
+                )
             }
         }
     }
@@ -390,6 +447,7 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                showSearchField: Boolean = true, onOpenProfile: (String) -> Unit = {},
                homeListState: LazyListState? = null, sheetExpansionPx: Float = 0f,
                onChatListOverflowChange: (Boolean) -> Unit = {},
+               onYourCircleCenterMeasured: (Int) -> Unit = {},
                onOpenConversationWithFriend: (ProfileEntity) -> Unit = {}) {
     var localQuery by remember(scopeKey) { mutableStateOf("") }
     val query = searchQuery ?: localQuery
@@ -428,7 +486,11 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
             }
         }.filterNotNull().distinctUntilChanged().collect(onChatListOverflowChange)
     }
-    PullToRefreshBox(isRefreshing = isRefreshing, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = onRefresh,
+        modifier = Modifier.fillMaxSize()
+    ) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val expansion = with(LocalDensity.current) { sheetExpansionPx.toDp() }
             Surface(
@@ -443,7 +505,7 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
-                        .widthIn(max = 980.dp)
+                        .widthIn(max = 1040.dp)
                         .fillMaxSize(),
                     contentPadding = PaddingValues(start = horizontalMargin, end = horizontalMargin, top = 20.dp, bottom = 104.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -476,16 +538,22 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                             shape = MaterialTheme.shapes.extraLarge,
                             color = MaterialTheme.colorScheme.primaryContainer,
                             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                            modifier = Modifier.fillMaxWidth()
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onGloballyPositioned { coordinates ->
+                                    onYourCircleCenterMeasured(
+                                        coordinates.positionInRoot().y.roundToInt() + coordinates.size.height / 2
+                                    )
+                                }
                         ) {
-                            Column(Modifier.padding(start = 22.dp, end = 18.dp, top = 22.dp, bottom = 18.dp)) {
+                            Column(Modifier.padding(start = 16.dp, end = 14.dp, top = 14.dp, bottom = 12.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Column(Modifier.weight(1f)) {
                                         Text("Your Circle", style = MaterialTheme.typography.titleLarge)
                                     }
                                     onAddFriends?.let {
-                                        androidx.compose.material3.FilledTonalIconButton(onClick = it) {
+                                        FilledTonalIconButton(onClick = it) {
                                             Icon(Icons.Default.PersonAdd, contentDescription = "Add friends")
                                         }
                                     }
@@ -499,8 +567,8 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                                         modifier = Modifier.padding(top = 8.dp)
                                     )
                                 } else {
-                                    Spacer(Modifier.height(14.dp))
-                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Spacer(Modifier.height(10.dp))
+                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         items(favoriteFriends, key = { it.id }) { friend ->
                                             val conversation = conversations.firstOrNull { it.otherUserId == friend.id && it.type == "direct" }
                                             Surface(
@@ -511,14 +579,14 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                                                 shape = CircleShape,
                                                 color = Color.Transparent,
                                                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            modifier = Modifier.width(112.dp).testTag("circle_friend_${friend.id}")
+                                            modifier = Modifier.width(104.dp).testTag("circle_friend_${friend.id}")
                                             ) {
                                                 Column(
-                                                    Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
+                                                    Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
                                                     horizontalAlignment = Alignment.CenterHorizontally,
                                                     verticalArrangement = Arrangement.spacedBy(6.dp)
                                                 ) {
-                                                    ExpressiveAvatar(friend.displayName, friend.avatarPath, 72.dp,
+                                                    ExpressiveAvatar(friend.displayName, friend.avatarPath, 80.dp,
                                                         modifier = Modifier.clickable { onOpenProfile(friend.id) })
                                                     Text(friend.displayName, style = MaterialTheme.typography.labelSmall,
                                                         maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -634,14 +702,14 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                                     if (conversation.unreadCount > 0) Badge { Text("${conversation.unreadCount}") }
                                 }
                             },
-                            colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent)
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
                         )
                     }
                 }
             }
         }
     }
-}
+    }
 }
 }
 }
@@ -723,7 +791,7 @@ fun M3FriendsTab(viewModel: HomeViewModel, friends: List<ProfileEntity>, pending
                                     Button(onClick = { viewModel.acceptFriendRequest(request) }, modifier = Modifier.testTag("accept_request_button")) { Text("Accept") }
                                     OutlinedButton(onClick = { viewModel.declineFriendRequest(request.id) }, modifier = Modifier.testTag("decline_request_button")) { Text("Decline") }
                                 }
-                            }, colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent)
+                            }, colors = ListItemDefaults.colors(containerColor = Color.Transparent)
                         )
                     }
                 }
@@ -761,7 +829,7 @@ fun M3FriendsTab(viewModel: HomeViewModel, friends: List<ProfileEntity>, pending
                                     Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "Message ${friend.displayName}")
                                 }
                             }
-                        }, colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent)
+                        }, colors = ListItemDefaults.colors(containerColor = Color.Transparent)
                     )
                 }
             }
@@ -832,7 +900,7 @@ fun M3NotificationsPage(viewModel: HomeViewModel, requests: List<FriendRequestEn
                     trailingContent = { Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         TextButton(onClick = { viewModel.acceptFriendRequest(request) }) { Text("Accept") }
                         TextButton(onClick = { viewModel.declineFriendRequest(request.id) }) { Text("Decline") }
-                    } }, colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent))
+                    } }, colors = ListItemDefaults.colors(containerColor = Color.Transparent))
             }
         }
     }
@@ -845,6 +913,21 @@ fun M3NotificationsPage(viewModel: HomeViewModel, requests: List<FriendRequestEn
 fun M3AppSettingsPage(viewModel: HomeViewModel, onBack: () -> Unit) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val dockPreferences = remember(context) { SecurePreferencesManager(context) }
+    var edgeDockEnabled by remember { mutableStateOf(dockPreferences.isEdgeDockEnabled()) }
+    val overlayPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        val granted = Settings.canDrawOverlays(context)
+        edgeDockEnabled = granted && dockPreferences.isEdgeDockEnabled()
+        if (!granted) dockPreferences.setEdgeDockEnabled(false)
+        if (granted && edgeDockEnabled) {
+            ContextCompat.startForegroundService(
+                context,
+                Intent(context, EdgeDockService::class.java).setAction(EdgeDockService.ACTION_APP_VISIBLE)
+            )
+        }
+    }
     var notificationsAllowed by remember {
         mutableStateOf(
             Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
@@ -880,21 +963,58 @@ fun M3AppSettingsPage(viewModel: HomeViewModel, onBack: () -> Unit) {
         Text("App settings", style = MaterialTheme.typography.headlineSmall)
         Text("Privacy and sync", style = MaterialTheme.typography.titleLarge)
         ListItem(leadingContent = { Icon(Icons.Default.Security, null) }, headlineContent = { Text("End-to-end encryption") },
-            supportingContent = { Text("Messages are encrypted on this device") })
+            supportingContent = { Text("Messages are encrypted on this device") },
+            modifier = Modifier.fillMaxWidth().clip(ExpressiveCardShape),
+            colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow))
         Text("Notifications", style = MaterialTheme.typography.titleLarge)
         ListItem(
             leadingContent = { Icon(Icons.Default.Notifications, contentDescription = null) },
             headlineContent = { Text(if (notificationsAllowed) "Message alerts enabled" else "Message alerts disabled") },
             supportingContent = { Text("Notifications use generic text so encrypted message content stays private.") },
+            modifier = Modifier.fillMaxWidth().clip(ExpressiveCardShape),
+            colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
             trailingContent = {
                 FilledTonalButton(
+                    shape = ExpressiveButtonShape,
                     enabled = !notificationsAllowed && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU,
                     onClick = { notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
                 ) { Text(if (notificationsAllowed) "Enabled" else "Enable") }
             }
         )
+        Text("Quick access", style = MaterialTheme.typography.titleLarge)
+        ListItem(
+            leadingContent = { Icon(Icons.Default.Person, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            headlineContent = { Text("People dock") },
+            supportingContent = { Text("Keep the swipe dock available over other apps. Android shows an ongoing notification while it is on.") },
+            modifier = Modifier.fillMaxWidth().clip(ExpressiveCardShape),
+            colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+            trailingContent = {
+                Switch(
+                    checked = edgeDockEnabled,
+                    onCheckedChange = { enabled ->
+                        if (!enabled) {
+                            dockPreferences.setEdgeDockEnabled(false)
+                            edgeDockEnabled = false
+                            context.stopService(Intent(context, EdgeDockService::class.java))
+                        } else if (Settings.canDrawOverlays(context)) {
+                            dockPreferences.setEdgeDockEnabled(true)
+                            edgeDockEnabled = true
+                            ContextCompat.startForegroundService(
+                                context,
+                                Intent(context, EdgeDockService::class.java).setAction(EdgeDockService.ACTION_APP_VISIBLE)
+                            )
+                        } else {
+                            dockPreferences.setEdgeDockEnabled(true)
+                            overlayPermissionLauncher.launch(
+                                Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
+                            )
+                        }
+                    }
+                )
+            }
+        )
         Text("Application updates", style = MaterialTheme.typography.titleLarge)
-        OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+        OutlinedCard(modifier = Modifier.fillMaxWidth(), shape = ExpressiveCardShape) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(updateMessage, style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -909,6 +1029,7 @@ fun M3AppSettingsPage(viewModel: HomeViewModel, onBack: () -> Unit) {
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(
+                        shape = ExpressiveButtonShape,
                         enabled = !isCheckingUpdate && !isDownloadingUpdate,
                         onClick = {
                             isCheckingUpdate = true
@@ -934,6 +1055,7 @@ fun M3AppSettingsPage(viewModel: HomeViewModel, onBack: () -> Unit) {
                     }
                     available?.let { latest ->
                         FilledTonalButton(
+                            shape = ExpressiveButtonShape,
                             enabled = !isDownloadingUpdate,
                             onClick = {
                                 isDownloadingUpdate = true
@@ -961,12 +1083,16 @@ fun M3AppSettingsPage(viewModel: HomeViewModel, onBack: () -> Unit) {
         }
         ListItem(leadingContent = { Icon(Icons.Default.CloudDone, null) }, headlineContent = { Text("Cloud relay") },
             supportingContent = { Text(if (viewModel.supabaseProvider.isConfigured) "Connected" else "Not configured") },
-            trailingContent = { FilledTonalButton(onClick = { viewModel.showSupabaseDialog(true) }) { Text("Configure") } })
+            modifier = Modifier.fillMaxWidth().clip(ExpressiveCardShape),
+            colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+            trailingContent = { FilledTonalButton(shape = ExpressiveButtonShape, onClick = { viewModel.showSupabaseDialog(true) }) { Text("Configure") } })
         Text("Appearance and motion", style = MaterialTheme.typography.titleLarge)
         ListItem(
             leadingContent = { Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
             headlineContent = { Text("Voice of User") },
             supportingContent = { Text("Subtly emphasizes expressive words after sending. Message text stays unchanged.") },
+            modifier = Modifier.fillMaxWidth().clip(ExpressiveCardShape),
+            colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
             trailingContent = { Switch(checked = state.voiceOfUserEnabled, onCheckedChange = viewModel::setVoiceOfUserEnabled) }
         )
     }
@@ -993,7 +1119,7 @@ fun M3AppSettingsPage(viewModel: HomeViewModel, onBack: () -> Unit) {
     }
 }
 
-@OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
+@OptIn(ExperimentalTextApi::class)
 @Composable
 private fun ProfileAppearanceSettings(
     appearance: ProfileAppearance,
@@ -1221,22 +1347,22 @@ fun M3ProfileTab(viewModel: HomeViewModel, onBack: (() -> Unit)? = null) {
                 Text("Security & devices", style = MaterialTheme.typography.titleLarge)
                 ListItem(leadingContent = { Icon(Icons.Default.Security, null, tint = MaterialTheme.colorScheme.primary) },
                     headlineContent = { Text("End-to-end encryption") }, supportingContent = { Text("libsignal Double Ratchet + X3DH") },
-                    colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent))
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent))
                 ListItem(leadingContent = { Icon(Icons.Default.Lock, null, tint = MaterialTheme.colorScheme.primary) },
                     headlineContent = { Text("Private key storage") }, supportingContent = { Text("Android hardware-backed KeyStore") },
-                    colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent))
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent))
                 ListItem(leadingContent = { Icon(Icons.Default.VpnKey, null, tint = MaterialTheme.colorScheme.primary) },
                     headlineContent = { Text("Device identifier") }, supportingContent = { Text("${auth.myDeviceId.take(16)}…", fontFamily = FontFamily.Monospace) },
                     trailingContent = { IconButton(onClick = { clipboard.setText(AnnotatedString(auth.myDeviceId)) }) {
                         Icon(Icons.Default.ContentCopy, contentDescription = "Copy device identifier")
-                    } }, colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent))
+                    } }, colors = ListItemDefaults.colors(containerColor = Color.Transparent))
                 ListItem(leadingContent = { Icon(if (cloud.isConfigured) Icons.Default.CloudDone else Icons.Default.CloudOff,
                     null, tint = if (cloud.isConfigured) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) },
                     headlineContent = { Text("Cloud relay") },
                     supportingContent = { Text(if (cloud.isConfigured) "Connected" else "Not configured") },
                     trailingContent = { FilledTonalButton(onClick = { viewModel.showSupabaseDialog(true) },
                         modifier = Modifier.testTag("open_supabase_config_button")) { Text("Configure") } },
-                    colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent))
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent))
             }
           }
         }

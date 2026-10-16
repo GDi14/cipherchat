@@ -82,6 +82,7 @@ class ChatViewModel(
 
     private var voiceTimerJob: Job? = null
     private var typingTimerJob: Job? = null
+    private var typingIsPublished = false
     private var isLoadingOlderMessages = false
     private var hasMoreOlderMessages = true
 
@@ -185,6 +186,7 @@ class ChatViewModel(
         chatRepository.closeActiveConversation(conversationId)
         chatRepository.clearEmphasisAnimation(messages.value.map { it.id })
         typingTimerJob?.cancel()
+        typingIsPublished = false
         viewModelScope.launch { chatRepository.setTyping(conversationId, false) }
     }
 
@@ -193,10 +195,16 @@ class ChatViewModel(
 
         // Typing notification
         typingTimerJob?.cancel()
+        if (text.isNotBlank() && !typingIsPublished) {
+            typingIsPublished = true
+            viewModelScope.launch { chatRepository.setTyping(conversationId, true) }
+        }
         typingTimerJob = viewModelScope.launch {
-            chatRepository.setTyping(conversationId, true)
             delay(3000)
-            chatRepository.setTyping(conversationId, false)
+            if (typingIsPublished) {
+                typingIsPublished = false
+                chatRepository.setTyping(conversationId, false)
+            }
         }
     }
 
@@ -453,6 +461,8 @@ class ChatViewModel(
     fun clearScrollToMessage() {
         _uiState.value = _uiState.value.copy(scrollToMessageId = null)
     }
+
+    suspend fun peerFingerprint(peerId: String): String? = chatRepository.peerFingerprint(peerId)
 
     fun resetSessionWithPeer(peerId: String, onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch {

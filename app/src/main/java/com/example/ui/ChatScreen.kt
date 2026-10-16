@@ -81,6 +81,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -248,8 +249,16 @@ fun ChatScreen(
     val isSomeoneTyping = typingUsersMap[viewModel.conversationId]?.isNotEmpty() == true
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val screenScope = rememberCoroutineScope()
 
     var showSafetySheet by remember { mutableStateOf(false) }
+    var currentPeerFingerprint by remember { mutableStateOf<String?>(null) }
+    val safetyPeerId = uiState.conversation?.takeIf { it.type == "direct" }?.otherUserId
+    LaunchedEffect(showSafetySheet, safetyPeerId) {
+        currentPeerFingerprint = if (showSafetySheet && safetyPeerId != null) {
+            runCatching { viewModel.peerFingerprint(safetyPeerId) }.getOrNull()
+        } else null
+    }
     var composerBounds by remember { mutableStateOf<Rect?>(null) }
     var sendFlight by remember { mutableStateOf<SendFlight?>(null) }
     var overlayOrigin by remember { mutableStateOf(Offset.Zero) }
@@ -897,9 +906,21 @@ fun ChatScreen(
 
     // Safety Numbers Verification ModalBottomSheet (Official M3)
     if (showSafetySheet) {
+        val directPeerId = uiState.conversation?.takeIf { it.type == "direct" }?.otherUserId
         M3SafetyNumbersSheet(
             conversationTitle = uiState.conversation?.title ?: "Chat",
-            conversationId = viewModel.conversationId,
+            fingerprint = currentPeerFingerprint,
+            onResetSession = directPeerId?.let { peerId ->
+                {
+                    viewModel.resetSessionWithPeer(peerId) { success, message ->
+                        screenScope.launch {
+                            snackbarHostState.showSnackbar(
+                                if (success) message else "Could not reset secure session: $message"
+                            )
+                        }
+                    }
+                }
+            },
             onDismiss = { showSafetySheet = false }
         )
     }
@@ -1253,10 +1274,12 @@ private fun M3MessageContent(
 @Composable
 fun M3SafetyNumbersSheet(
     conversationTitle: String,
-    conversationId: String,
+    fingerprint: String?,
+    onResetSession: (() -> Unit)?,
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showResetConfirmation by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -1291,7 +1314,7 @@ fun M3SafetyNumbersSheet(
             )
 
             Text(
-                text = "Comparing safety numbers with $conversationTitle verifies that your conversation is genuinely end-to-end encrypted with no third-party interception.",
+                text = "Compare this pairwise device-key fingerprint with $conversationTitle over a trusted channel. If either device was reinstalled, the fingerprint may have changed.",
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1308,15 +1331,9 @@ fun M3SafetyNumbersSheet(
                     modifier = Modifier.padding(18.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    val hash = kotlin.math.abs(conversationId.hashCode())
-                    val p1 = String.format(Locale.getDefault(), "%05d", hash % 100000)
-                    val p2 = String.format(Locale.getDefault(), "%05d", (hash / 7) % 100000)
-                    val p3 = String.format(Locale.getDefault(), "%05d", (hash / 13) % 100000)
-                    val p4 = String.format(Locale.getDefault(), "%05d", (hash / 19) % 100000)
-
                     Text(
-                        text = "$p1  $p2\n$p3  $p4",
-                        style = MaterialTheme.typography.headlineSmall,
+                        text = fingerprint ?: "Fingerprint available after a secure session is established",
+                        style = MaterialTheme.typography.titleMedium,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center
@@ -1328,10 +1345,38 @@ fun M3SafetyNumbersSheet(
                 onClick = onDismiss,
                 modifier = Modifier.fillMaxWidth().height(48.dp)
             ) {
-                Text("Verification Confirmed")
+                Text("Close")
+            }
+
+            if (onResetSession != null) {
+                OutlinedButton(
+                    onClick = { showResetConfirmation = true },
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) {
+                    Text("Reset secure session")
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
         }
+    }
+
+    if (showResetConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showResetConfirmation = false },
+            title = { Text("Trust the contact's current key?") },
+            text = {
+                Text("Only continue after comparing the fingerprint with the contact over a trusted channel. Messages encrypted before their key changed may remain unreadable.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showResetConfirmation = false
+                    onResetSession?.invoke()
+                }) { Text("Trust key and reset") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetConfirmation = false }) { Text("Cancel") }
+            }
+        )
     }
 }

@@ -8,6 +8,8 @@ import androidx.credentials.exceptions.NoCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.CommonStatusCodes
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -129,7 +131,13 @@ fun OnboardingScreen(viewModel: OnboardingViewModel, onRegistered: () -> Unit) {
                     "Credential Manager sign-in failed: ${error.javaClass.name}: ${error.message}",
                     error
                 )
-                viewModel.googleSignInError(error.localizedMessage ?: "Google sign-in was canceled or failed")
+                val statusCode = (error as? ApiException)?.statusCode
+                val message = when (statusCode) {
+                    CommonStatusCodes.CANCELED -> "Google sign-in was canceled. Tap Continue with Google and choose your account to try again."
+                    CommonStatusCodes.DEVELOPER_ERROR -> "Google sign-in is misconfigured for this build. Check the Android package, signing SHA-1, and Web client ID."
+                    else -> error.localizedMessage ?: "Google sign-in failed. Please try again."
+                }
+                viewModel.googleSignInError(message)
             }
         }.let { }
     }

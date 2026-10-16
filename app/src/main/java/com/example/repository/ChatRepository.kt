@@ -2,6 +2,7 @@ package com.example.repository
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import com.example.crypto.MediaEncryptor
 import com.example.crypto.MediaPayload
 import com.example.crypto.MessagePayload
@@ -27,6 +28,8 @@ import com.example.data.remote.PrekeyDto
 import com.example.data.remote.SupabaseClientProvider
 import com.example.data.remote.TypingStatusDto
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.filter.FilterOperator
+import io.github.jan.supabase.postgrest.rpc
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.channel
@@ -109,9 +112,18 @@ class ChatRepository(
     }
 
     private var realtimeChannelJob: Job? = null
+    private val realtimeSyncLock = Any()
 
     fun getConversations(): Flow<List<ConversationEntity>> =
         database.conversationDao().getAllConversations()
+
+    suspend fun peerFingerprint(peerUserId: String): String? {
+        if (!supabaseProvider.isConfigured) return null
+        val bundle = supabaseProvider.getClient().postgrest["prekeys"].select {
+            filter { eq("user_id", peerUserId) }
+        }.decodeList<PrekeyDto>().firstOrNull() ?: return null
+        return signalManager.peerFingerprint(peerUserId, bundle.identityKey)
+    }
 
     fun getMessagesForConversation(convId: String): Flow<List<MessageEntity>> =
         database.messageDao().getLatestMessagesForConversation(convId, 300).map { it.asReversed() }
@@ -534,18 +546,16 @@ class ChatRepository(
                     )
                 )
             }
-        } catch (_: Exception) {}
+        } catch (error: Exception) {
+            Log.w("ChatSync", "Could not publish typing status", error)
+        }
     }
 
     /**
      * Ensures an active libsignal session with a remote user via X3DH.
      */
-    private suspend fun ensureDirectSession(recipientId: String) {
+    private suspend fun ensureDirectSession(recipientId: String, acceptIdentityChange: Boolean = false) {
         val address = org.whispersystems.libsignal.SignalProtocolAddress(recipientId, 1)
-        if (signalManager.store.containsSession(address)) {
-            return
-        }
-
         if (!supabaseProvider.isConfigured) {
             throw IllegalStateException("Supabase is not configured. Connect both devices in Settings.")
         }
@@ -567,13 +577,36 @@ class ChatRepository(
                 "Recipient hasn't uploaded their encryption keys yet. Have them open the app to sync their keys with Supabase."
             )
 
+        if (signalManager.hasSessionForIdentity(recipientId, dto.identityKey)) return
+
+        val previouslyTrustedIdentity = signalManager.store.getIdentity(address)
+        val publishedIdentity = org.whispersystems.libsignal.IdentityKey(
+            android.util.Base64.decode(dto.identityKey, android.util.Base64.NO_WRAP),
+            0
+        )
+        if (previouslyTrustedIdentity != null && previouslyTrustedIdentity != publishedIdentity) {
+            if (!acceptIdentityChange) {
+                throw IllegalStateException(
+                    "This contact's encryption key changed. Verify the safety number with them, then reset the secure session from their profile."
+                )
+            }
+            signalManager.store.forgetIdentity(address)
+        }
+        // A session with no remembered peer identity is incomplete/corrupt; rebuild from the
+        // currently published bundle. Keep the trusted identity unless the user explicitly reset.
+        if (signalManager.store.containsSession(address)) signalManager.store.deleteSession(address)
+
+        val oneTimePrekey = client.postgrest.rpc(
+            "consume_one_time_prekey",
+            mapOf("target_user_id" to recipientId)
+        ).decodeList<OneTimePrekeyItem>().firstOrNull()
         val bundle = PublicPrekeyBundle(
             identityKey = dto.identityKey,
             registrationId = dto.registrationId,
             signedPrekeyId = dto.signedPrekeyId,
             signedPrekey = dto.signedPrekey,
             signedPrekeySignature = dto.signedPrekeySignature,
-            oneTimePrekeys = dto.oneTimePrekeys
+            oneTimePrekeys = listOfNotNull(oneTimePrekey)
         )
 
         signalManager.initializeSessionWithRecipient(recipientId, bundle)
@@ -586,7 +619,7 @@ class ChatRepository(
         try {
             val address = SignalProtocolAddress(otherUserId, 1)
             signalManager.store.deleteSession(address)
-            ensureDirectSession(otherUserId)
+            ensureDirectSession(otherUserId, acceptIdentityChange = true)
             Result.success(Unit)
         } catch (e: Exception) {
             e.printStackTrace()
@@ -599,10 +632,20 @@ class ChatRepository(
      */
     fun startRealtimeSync() {
         if (!supabaseProvider.isConfigured) return
-        realtimeChannelJob?.cancel()
+        // Do not bind the live channel to an anonymous startup session. On a fresh install
+        // MainActivity is created before Google sign-in, so the channel must wait until the
+        // Supabase Auth session exists; HomeViewModel calls this again after profile setup.
+        if (supabaseProvider.getClient().auth.currentUserOrNull() == null) {
+            Log.i("ChatSync", "Realtime startup deferred until Supabase Auth is signed in")
+            return
+        }
+        synchronized(realtimeSyncLock) {
+            // Foreground callbacks and ViewModel initialization can both request sync. Keep one
+            // channel and its collectors alive instead of canceling/rejoining on every callback.
+            if (realtimeChannelJob?.isActive == true) return
 
-        realtimeChannelJob = scope.launch {
-            try {
+            realtimeChannelJob = scope.launch {
+                try {
                 val client = supabaseProvider.getClient()
                 val channel = client.realtime.channel("shieldchat-live-sync")
 
@@ -626,9 +669,6 @@ class ChatRepository(
                 ) {
                     table = "typing_status"
                 }
-
-                client.realtime.connect()
-                channel.subscribe()
 
                 // Launch collectors
                 launch {
@@ -693,8 +733,16 @@ class ChatRepository(
                     }
                 }
 
-            } catch (e: Exception) {
-                e.printStackTrace()
+                // Start collecting before subscribing so the first database events cannot
+                // arrive in the small gap between the channel joining and flow collection.
+                channel.subscribe(blockUntilSubscribed = true)
+                Log.i("ChatSync", "Supabase Realtime subscription joined")
+
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e("ChatSync", "Supabase Realtime subscription failed", e)
+                }
             }
         }
     }
@@ -706,8 +754,19 @@ class ChatRepository(
         val msgId = dto.id ?: return
         if (dto.senderId == myUserId) return // skip our own messages
 
-        // Check if message already in Room
-        if (database.messageDao().getMessageById(msgId) != null) return
+        // Retry messages with a prior decryption tombstone after keys/session state recover.
+        val existingMessage = database.messageDao().getMessageById(msgId)
+        if (existingMessage != null && existingMessage.status != "failed") return
+
+        // A delivery receipt means this device fetched the encrypted message. Record it before
+        // decryption so a local Signal/key problem does not leave the sender stuck at "sent".
+        if (supabaseProvider.isConfigured) {
+            runCatching {
+                supabaseProvider.getClient().postgrest["message_receipts"].upsert(
+                    MessageReceiptDto(messageId = msgId, userId = myUserId, status = "delivered")
+                )
+            }.onFailure { it.printStackTrace() }
+        }
 
         try {
             // Decrypt libsignal payload
@@ -721,20 +780,9 @@ class ChatRepository(
                     signalManager.decryptGroupMessage(dto.conversationId, dto.senderId, dto.encryptedBody)
                 }
             } catch (decryptionEx: Exception) {
-                decryptionEx.printStackTrace()
-                if (isDirect && supabaseProvider.isConfigured) {
-                    try {
-                        val address = SignalProtocolAddress(dto.senderId, 1)
-                        signalManager.store.deleteSession(address)
-                        ensureDirectSession(dto.senderId)
-                        signalManager.decryptDirectMessage(dto.senderId, dto.messageType, dto.encryptedBody)
-                    } catch (retryEx: Exception) {
-                        retryEx.printStackTrace()
-                        throw decryptionEx
-                    }
-                } else {
-                    throw decryptionEx
-                }
+                // A failed decrypt does not prove that the ratchet is stale. Deleting the
+                // session here discards valid chain state and can make later messages unreadable.
+                throw decryptionEx
             }
 
             val payload = MessagePayloadCodec.decode(decryptedBytes)
@@ -794,29 +842,75 @@ class ChatRepository(
             }
 
             // A message arriving while its chat is visible is immediately read.
-            if (supabaseProvider.isConfigured) {
-                val client = supabaseProvider.getClient()
-                client.postgrest["message_receipts"].upsert(
-                    MessageReceiptDto(
-                        messageId = msgId,
-                        userId = myUserId,
-                        status = if (conversationIsVisible) "read" else "delivered"
+            if (conversationIsVisible && supabaseProvider.isConfigured) {
+                runCatching {
+                    supabaseProvider.getClient().postgrest["message_receipts"].upsert(
+                        MessageReceiptDto(messageId = msgId, userId = myUserId, status = "read")
                     )
-                )
+                }.onFailure { it.printStackTrace() }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
-            // In case of decryption failure, save tombstone with visible error state
+            Log.e(
+                "SignalDecrypt",
+                "Could not decrypt incoming message type=${dto.messageType}; error=${e.javaClass.simpleName}: ${e.localizedMessage}",
+                e
+            )
+            // Keep a retryable tombstone, but do not claim every failure is a ratchet mismatch.
             val entity = MessageEntity(
                 id = msgId,
                 conversationId = dto.conversationId,
                 senderId = dto.senderId,
-                plaintextBody = "[Decryption Failed: Ratchet Key Mismatch]",
+                plaintextBody = "[Unable to decrypt this message. Your security keys may have changed. Ask the sender to resend.]",
                 messageType = dto.messageType,
                 status = "failed",
                 timestamp = messageTimestamp(dto.createdAt)
             )
             database.messageDao().insertOrUpdate(entity)
+        }
+    }
+
+    /** Fetches one conversation on an FCM wake-up, falling back to full sync if uncached. */
+    suspend fun syncConversationFromSupabase(conversationId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!supabaseProvider.isConfigured) return@withContext Result.success(Unit)
+        try {
+            val conversation = database.conversationDao().getConversationById(conversationId)
+                ?: return@withContext syncAllFromSupabase()
+            val client = supabaseProvider.getClient()
+
+            if (conversation.type == "group") {
+                val senderKeys = client.postgrest["group_sender_keys"].select {
+                    filter {
+                        eq("conversation_id", conversationId)
+                        eq("recipient_id", myUserId)
+                    }
+                }.decodeList<GroupSenderKeyDto>()
+                for (senderKey in senderKeys) {
+                    try {
+                        val decrypted = signalManager.decryptDirectMessage(
+                            senderKey.senderId,
+                            org.whispersystems.libsignal.protocol.CiphertextMessage.WHISPER_TYPE,
+                            senderKey.encryptedDistributionMessage
+                        )
+                        signalManager.processGroupDistributionMessage(
+                            conversationId,
+                            senderKey.senderId,
+                            String(decrypted, Charsets.UTF_8)
+                        )
+                    } catch (_: Exception) {
+                        // A previously consumed or unavailable group key is handled per message.
+                    }
+                }
+            }
+
+            val messages = client.postgrest["messages"].select {
+                filter { eq("conversation_id", conversationId) }
+            }.decodeList<MessageDto>()
+            for (message in messages) processIncomingMessage(message)
+            reconcileOutgoingReceipts(client, messages)
+            Result.success(Unit)
+        } catch (error: Exception) {
+            error.printStackTrace()
+            Result.failure(error)
         }
     }
 
@@ -919,12 +1013,39 @@ class ChatRepository(
                 for (msg in messages) {
                     processIncomingMessage(msg)
                 }
+
+                // Reconcile receipts even if the sender missed Realtime events while disconnected.
+                reconcileOutgoingReceipts(client, messages)
             }
 
             Result.success(Unit)
         } catch (e: Exception) {
             e.printStackTrace()
             Result.failure(e)
+        }
+    }
+
+    private suspend fun reconcileOutgoingReceipts(
+        client: io.github.jan.supabase.SupabaseClient,
+        messages: List<MessageDto>
+    ) {
+        val outgoingIds = messages.asSequence()
+            .filter { it.senderId == myUserId }
+            .mapNotNull { it.id }
+            .toList()
+        for (idBatch in outgoingIds.chunked(100)) {
+            if (idBatch.isEmpty()) continue
+            val idFilter = "(${idBatch.joinToString(",")})"
+            val receipts = client.postgrest["message_receipts"].select {
+                filter {
+                    filter("message_id", FilterOperator.IN, idFilter)
+                    neq("user_id", myUserId)
+                }
+            }.decodeList<MessageReceiptDto>()
+            for ((messageId, messageReceipts) in receipts.groupBy { it.messageId }) {
+                val status = if (messageReceipts.any { it.status == "read" }) "read" else "delivered"
+                database.messageDao().updateStatus(messageId, status)
+            }
         }
     }
 }

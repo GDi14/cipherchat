@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import java.security.KeyStore
+import javax.crypto.AEADBadTagException
 import java.util.UUID
 
 /**
@@ -12,17 +14,48 @@ import java.util.UUID
  */
 class SecurePreferencesManager(context: Context) {
 
-    private val masterKey = MasterKey.Builder(context)
-        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-        .build()
+    private val appContext = context.applicationContext
 
-    val encryptedPrefs: SharedPreferences = EncryptedSharedPreferences.create(
-        context,
-        "shieldchat_secure_prefs",
-        masterKey,
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-    )
+    val encryptedPrefs: SharedPreferences = openEncryptedPreferences()
+
+    private fun openEncryptedPreferences(): SharedPreferences {
+        try {
+            return createEncryptedPreferences()
+        } catch (error: Exception) {
+            if (!error.hasAeadBadTag()) throw error
+
+            // A restored preferences file can outlive the Android Keystore key that encrypted it.
+            // Those values (including local Signal private keys) cannot be recovered; remove only
+            // this file and its unusable wrapping key, then allow the app to start with fresh keys.
+            appContext.deleteSharedPreferences(PREFS_FILE)
+            runCatching {
+                KeyStore.getInstance(ANDROID_KEYSTORE).apply {
+                    load(null)
+                    if (containsAlias(MasterKey.DEFAULT_MASTER_KEY_ALIAS)) {
+                        deleteEntry(MasterKey.DEFAULT_MASTER_KEY_ALIAS)
+                    }
+                }
+            }.getOrThrow()
+
+            return createEncryptedPreferences()
+        }
+    }
+
+    private fun createEncryptedPreferences(): SharedPreferences {
+        val masterKey = MasterKey.Builder(appContext)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        return EncryptedSharedPreferences.create(
+            appContext,
+            PREFS_FILE,
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+    }
+
+    private fun Throwable.hasAeadBadTag(): Boolean =
+        generateSequence(this) { it.cause }.any { it is AEADBadTagException }
 
     fun getOrCreateUserId(): String {
         var userId = encryptedPrefs.getString(KEY_USER_ID, null)
@@ -75,6 +108,11 @@ class SecurePreferencesManager(context: Context) {
         encryptedPrefs.edit().putBoolean(KEY_VOICE_OF_USER, enabled).apply()
     }
 
+    fun isEdgeDockEnabled(): Boolean = encryptedPrefs.getBoolean(KEY_EDGE_DOCK_ENABLED, false)
+    fun setEdgeDockEnabled(enabled: Boolean) {
+        encryptedPrefs.edit().putBoolean(KEY_EDGE_DOCK_ENABLED, enabled).apply()
+    }
+
     fun getProfileBackgroundColor(): String = encryptedPrefs.getString(KEY_PROFILE_BACKGROUND, "#C987FA") ?: "#C987FA"
     fun setProfileBackgroundColor(value: String) { encryptedPrefs.edit().putString(KEY_PROFILE_BACKGROUND, value).apply() }
     fun getProfileFontId(): String = encryptedPrefs.getString(KEY_PROFILE_FONT, "roboto_flex") ?: "roboto_flex"
@@ -118,6 +156,8 @@ class SecurePreferencesManager(context: Context) {
     }
 
     companion object {
+        private const val PREFS_FILE = "shieldchat_secure_prefs"
+        private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val KEY_USER_ID = "pref_user_id"
         private const val KEY_DEVICE_ID = "pref_device_id"
         private const val KEY_DISPLAY_NAME = "pref_display_name"
@@ -128,6 +168,7 @@ class SecurePreferencesManager(context: Context) {
         private const val KEY_SUPABASE_AUTH_USER_ID = "pref_supabase_auth_user_id"
         private const val KEY_APP_FOREGROUND = "pref_app_foreground"
         private const val KEY_VOICE_OF_USER = "pref_voice_of_user_enabled"
+        private const val KEY_EDGE_DOCK_ENABLED = "pref_edge_dock_enabled"
         private const val KEY_PROFILE_BACKGROUND = "pref_profile_background"
         private const val KEY_PROFILE_FONT = "pref_profile_font"
         private const val KEY_PROFILE_WIDTH = "pref_profile_font_width"

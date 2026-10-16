@@ -39,6 +39,7 @@ create index if not exists idx_profiles_device on public.profiles(device_id);
 -- Private keys remain exclusively in device Android KeyStore / EncryptedSharedPreferences!
 create table if not exists public.prekeys (
     user_id uuid primary key references public.profiles(id) on delete cascade,
+    device_id text not null,
     identity_key text not null,               -- Base64 encoded public identity key
     registration_id int not null,             -- Signal registration ID
     signed_prekey_id int not null,            -- Signed prekey ID
@@ -47,6 +48,15 @@ create table if not exists public.prekeys (
     one_time_prekeys jsonb not null default '[]'::jsonb, -- Array of { id: int, key: base64 }
     updated_at timestamptz not null default now()
 );
+
+-- A profile currently has one active encryption device. Keep the device identity beside
+-- its public bundle so a reinstall cannot silently advertise keys whose private half is gone.
+alter table public.prekeys add column if not exists device_id text;
+update public.prekeys k
+set device_id = p.device_id
+from public.profiles p
+where p.id = k.user_id and k.device_id is null;
+alter table public.prekeys alter column device_id set not null;
 
 -- 3. Friend Requests Table
 create table if not exists public.friend_requests (
@@ -199,6 +209,63 @@ set search_path = public
 as $$
   select id from public.profiles where auth_user_id = auth.uid() limit 1
 $$;
+
+-- Claim one OTPK atomically so concurrent senders never initialize X3DH with the same
+-- one-time key. This returns zero rows when the recipient has no OTPKs remaining.
+create or replace function public.consume_one_time_prekey(target_user_id uuid)
+returns table(id integer, key text)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  available jsonb;
+  claimed jsonb;
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required' using errcode = '42501';
+  end if;
+  if not exists (
+    select 1
+    from public.conversation_members mine
+    join public.conversation_members recipient using (conversation_id)
+    where mine.user_id = public.current_profile_id()
+      and recipient.user_id = target_user_id
+  ) then
+    raise exception 'A shared conversation is required to claim recipient keys' using errcode = '42501';
+  end if;
+
+  select p.one_time_prekeys into available
+  from public.prekeys p
+  where p.user_id = target_user_id
+  for update;
+
+  if available is null then
+    return;
+  end if;
+  if jsonb_typeof(available) <> 'array' then
+    return;
+  end if;
+  if jsonb_array_length(available) = 0 then
+    return;
+  end if;
+
+  claimed := available -> 0;
+  update public.prekeys p
+  set one_time_prekeys = coalesce((
+    select jsonb_agg(item.value order by item.ordinality)
+    from jsonb_array_elements(available) with ordinality as item(value, ordinality)
+    where item.ordinality > 1
+  ), '[]'::jsonb),
+      updated_at = now()
+  where p.user_id = target_user_id;
+
+  return query select (claimed ->> 'id')::integer, claimed ->> 'key';
+end;
+$$;
+
+revoke all on function public.consume_one_time_prekey(uuid) from public, anon;
+grant execute on function public.consume_one_time_prekey(uuid) to authenticated;
 
 create or replace function public.is_conversation_member(target_conversation_id uuid)
 returns boolean

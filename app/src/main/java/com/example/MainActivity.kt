@@ -1,6 +1,7 @@
 package com.example
 
 import android.os.Bundle
+import android.content.Intent
 import android.graphics.Color as AndroidColor
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -12,6 +13,8 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -25,10 +28,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.lifecycleScope
 import com.example.crypto.SignalProtocolManager
 import com.example.data.local.AppDatabase
 import com.example.data.local.SecurePreferencesManager
+import com.example.ui.dock.EdgeDockService
 import com.example.data.remote.SupabaseClientProvider
+import com.example.data.remote.PushTokenRegistrar
+import com.example.data.remote.MessageNotificationChannel
 import com.example.repository.AuthRepository
 import com.example.repository.ChatRepository
 import com.example.repository.FriendRepository
@@ -52,9 +59,14 @@ import com.example.ui.theme.ExpressivePagesTheme
 import com.example.ui.theme.LocalExpressiveMotionEnabled
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.theme.rememberSystemMotionEnabled
+import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.status.SessionStatus
+import kotlinx.coroutines.launch
+import android.util.Log
 
 sealed interface AppScreen {
     val level: Int
+    data object AuthLoading : AppScreen { override val level: Int = 0 }
     data object Onboarding : AppScreen { override val level: Int = 0 }
     data object Home : AppScreen { override val level: Int = 1 }
     data class Chat(val conversationId: String) : AppScreen { override val level: Int = 2 }
@@ -69,6 +81,7 @@ sealed interface AppScreen {
 private val AppScreenSaver = Saver<AppScreen, String>(
     save = { screen ->
         when (screen) {
+            AppScreen.AuthLoading -> "auth_loading"
             AppScreen.Onboarding -> "onboarding"
             AppScreen.Home -> "home"
             is AppScreen.Chat -> "chat:${screen.conversationId}"
@@ -82,6 +95,7 @@ private val AppScreenSaver = Saver<AppScreen, String>(
     },
     restore = { saved ->
         when {
+            saved == "auth_loading" -> AppScreen.AuthLoading
             saved == "onboarding" -> AppScreen.Onboarding
             saved.startsWith("chat:") -> AppScreen.Chat(saved.removePrefix("chat:"))
             saved == "new_group" -> AppScreen.NewGroup
@@ -97,6 +111,10 @@ private val AppScreenSaver = Saver<AppScreen, String>(
 
 class MainActivity : ComponentActivity() {
     private var notificationConversationRequest by mutableStateOf<String?>(null)
+    private var foregroundChatRepository: ChatRepository? = null
+    private var foregroundSecurePrefs: SecurePreferencesManager? = null
+    private var foregroundSupabaseProvider: SupabaseClientProvider? = null
+    private var hasStartedOnce = false
 
     companion object {
         const val EXTRA_NOTIFICATION_CONVERSATION_ID = "notification_conversation_id"
@@ -104,16 +122,45 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        SecurePreferencesManager(applicationContext).setApplicationForeground(true)
+        val securePrefs = foregroundSecurePrefs ?: SecurePreferencesManager(applicationContext).also {
+            foregroundSecurePrefs = it
+        }
+        securePrefs.setApplicationForeground(true)
+        if (securePrefs.isEdgeDockEnabled() && android.provider.Settings.canDrawOverlays(this)) {
+            startService(Intent(this, EdgeDockService::class.java).setAction(EdgeDockService.ACTION_APP_VISIBLE))
+        }
+        if (hasStartedOnce) {
+            foregroundChatRepository?.let { repository ->
+                repository.startRealtimeSync()
+                lifecycleScope.launch {
+                    repository.syncAllFromSupabase().onFailure {
+                        Log.w("ChatSync", "Foreground catch-up failed", it)
+                    }
+                }
+            }
+            val provider = foregroundSupabaseProvider
+            if (provider != null && securePrefs.isRegistered()) {
+                lifecycleScope.launch {
+                    runCatching { PushTokenRegistrar.register(applicationContext, securePrefs, provider) }
+                        .onFailure { Log.w("PushTokenRegistrar", "Foreground token refresh failed", it) }
+                }
+            }
+        }
+        hasStartedOnce = true
     }
 
     override fun onStop() {
-        SecurePreferencesManager(applicationContext).setApplicationForeground(false)
+        val securePrefs = SecurePreferencesManager(applicationContext)
+        securePrefs.setApplicationForeground(false)
+        if (securePrefs.isEdgeDockEnabled() && android.provider.Settings.canDrawOverlays(this)) {
+            startService(Intent(this, EdgeDockService::class.java).setAction(EdgeDockService.ACTION_APP_HIDDEN))
+        }
         super.onStop()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        MessageNotificationChannel.ensureCreated(this)
         notificationConversationRequest = intent?.getStringExtra(EXTRA_NOTIFICATION_CONVERSATION_ID)
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
@@ -145,6 +192,12 @@ class MainActivity : ComponentActivity() {
             supabaseProvider = supabaseProvider,
             database = database
         )
+        foregroundSecurePrefs = securePrefs
+        foregroundSupabaseProvider = supabaseProvider
+        foregroundChatRepository = chatRepository
+        // Start the single foreground Realtime subscription even when the launch target is
+        // a notification conversation and HomeViewModel is not created first.
+        chatRepository.startRealtimeSync()
 
         setContent {
             val systemMotionEnabled = rememberSystemMotionEnabled()
@@ -156,9 +209,12 @@ class MainActivity : ComponentActivity() {
                     ) {
                     var currentScreen by rememberSaveable(stateSaver = AppScreenSaver) {
                         mutableStateOf<AppScreen>(
-                            notificationConversationRequest?.takeIf { authRepository.isRegistered() }
-                                ?.let { AppScreen.Chat(it) }
-                                ?: if (authRepository.isRegistered()) AppScreen.Home else AppScreen.Onboarding
+                                notificationConversationRequest?.takeIf { authRepository.isRegistered() }
+                                    ?.let { AppScreen.Chat(it) }
+                                    ?: when {
+                                        authRepository.isRegistered() -> AppScreen.Home
+                                        else -> AppScreen.Onboarding
+                                    }
                         )
                     }
                     LaunchedEffect(notificationConversationRequest) {
@@ -168,6 +224,28 @@ class MainActivity : ComponentActivity() {
                     }
                     var profileReturnScreen by rememberSaveable(stateSaver = AppScreenSaver) {
                         mutableStateOf<AppScreen>(AppScreen.Home)
+                    }
+                    val authSessionStatus by supabaseProvider.getClient().auth.sessionStatus.collectAsState()
+                    LaunchedEffect(authSessionStatus) {
+                        if (authSessionStatus is SessionStatus.Authenticated && authRepository.isRegistered()) {
+                            lifecycleScope.launch {
+                                runCatching {
+                                    PushTokenRegistrar.register(applicationContext, securePrefs, supabaseProvider)
+                                }.onFailure {
+                                    Log.e("PushTokenRegistrar", "FCM token registration failed after Auth session restore", it)
+                                }
+                            }
+                        }
+                    }
+                    val displayedScreen = if (authRepository.isRegistered()) {
+                        when (authSessionStatus) {
+                            SessionStatus.Initializing -> AppScreen.AuthLoading
+                            is SessionStatus.Authenticated -> currentScreen
+                            is SessionStatus.NotAuthenticated,
+                            is SessionStatus.RefreshFailure -> AppScreen.Onboarding
+                        }
+                    } else {
+                        currentScreen
                     }
 
                     BackHandler(
@@ -181,7 +259,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     AnimatedContent(
-                        targetState = currentScreen,
+                        targetState = displayedScreen,
                         transitionSpec = {
                             if (!systemMotionEnabled) {
                                 EnterTransition.None togetherWith ExitTransition.None
@@ -195,6 +273,14 @@ class MainActivity : ComponentActivity() {
                     ) { screen ->
                         val renderScreen: @Composable () -> Unit = {
                         when (screen) {
+                            is AppScreen.AuthLoading -> {
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = androidx.compose.ui.Alignment.Center
+                                ) {
+                                    CircularProgressIndicator()
+                                }
+                            }
                             is AppScreen.Onboarding -> {
                                 val onboardingViewModel: OnboardingViewModel = viewModel(
                                     factory = OnboardingViewModel.Factory(authRepository, supabaseProvider)
@@ -231,7 +317,7 @@ class MainActivity : ComponentActivity() {
                                     onOpenProfile = { userId ->
                                         profileReturnScreen = AppScreen.Home
                                         currentScreen = AppScreen.UserProfile(userId)
-                                    }
+                                    },
                                 )
                             }
 
@@ -340,4 +426,5 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         notificationConversationRequest = intent.getStringExtra(EXTRA_NOTIFICATION_CONVERSATION_ID)
     }
+
 }

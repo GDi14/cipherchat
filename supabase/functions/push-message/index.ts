@@ -74,6 +74,14 @@ Deno.serve(async (request) => {
       auth: { persistSession: false, autoRefreshToken: false },
     });
     const row = event.record;
+    const { data: senderProfile, error: senderError } = await admin
+      .from("profiles")
+      .select("display_name")
+      .eq("id", row.sender_id)
+      .maybeSingle();
+    if (senderError) throw senderError;
+    const senderName = (senderProfile?.display_name ?? "New message").trim().slice(0, 80) || "New message";
+
     let recipientIds: string[];
     if (row.recipient_id) {
       recipientIds = [row.recipient_id];
@@ -86,14 +94,20 @@ Deno.serve(async (request) => {
       if (error) throw error;
       recipientIds = (data ?? []).map((member) => member.user_id as string);
     }
-    if (recipientIds.length === 0) return Response.json({ sent: 0 });
+    if (recipientIds.length === 0) {
+      console.warn("Push skipped: message has no recipient profiles");
+      return Response.json({ sent: 0, failed: 0, reason: "no_recipients" });
+    }
 
     const { data: devices, error: deviceError } = await admin
       .from("device_tokens")
       .select("fcm_token")
       .in("user_id", recipientIds);
     if (deviceError) throw deviceError;
-    if (!devices?.length) return Response.json({ sent: 0 });
+    if (!devices?.length) {
+      console.warn("Push skipped: recipient profiles have no registered FCM devices");
+      return Response.json({ sent: 0, failed: 0, reason: "no_registered_devices" });
+    }
 
     const serviceAccount = JSON.parse(serviceAccountJson);
     const accessToken = await getFcmAccessToken(serviceAccount);
@@ -108,19 +122,42 @@ Deno.serve(async (request) => {
         body: JSON.stringify({
           message: {
             token: fcm_token,
-            data: { conversation_id: row.conversation_id, kind: "new_message" },
-            android: { priority: "HIGH", ttl: "3600s" },
+            // Keep push content generic so encrypted message text never leaves the app.
+            // The notification payload lets Android display it while the process is
+            // stopped; data remains available for routing/catch-up when tapped.
+            notification: { title: senderName, body: "Sent you a message" },
+            data: {
+              conversation_id: row.conversation_id,
+              message_id: row.id,
+              sender_name: senderName,
+              kind: "new_message",
+            },
+            android: {
+              priority: "HIGH",
+              ttl: "3600s",
+              notification: { channel_id: "messages" },
+            },
           },
         }),
       });
       if (!response.ok) {
         const details = await response.text();
         console.error("FCM send failed (" + response.status + ")", details);
+        if (/UNREGISTERED|registration.token.not.registered/i.test(details)) {
+          const { error: deleteError } = await admin
+            .from("device_tokens")
+            .delete()
+            .eq("fcm_token", fcm_token);
+          if (deleteError) console.error("Could not remove invalid FCM token", deleteError);
+        }
       }
       return response.ok;
     }));
 
-    return Response.json({ sent: results.filter(Boolean).length, failed: results.length - results.filter(Boolean).length });
+    const sent = results.filter(Boolean).length;
+    const failed = results.length - sent;
+    console.info(`FCM delivery result: ${sent} sent, ${failed} failed`);
+    return Response.json({ sent, failed });
   } catch (error) {
     console.error("Push delivery failed", error);
     return new Response("Push delivery failed", { status: 500 });

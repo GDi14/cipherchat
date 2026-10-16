@@ -19,8 +19,9 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.postgrest
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -55,9 +56,28 @@ object PushTokenRegistrar {
                 )
             )
             Log.i("PushTokenRegistrar", "FCM token registered for the current profile")
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
             Log.e("PushTokenRegistrar", "Could not save FCM token; check device_tokens RLS and profile/Auth link", error)
             throw error
+        }
+    }
+}
+
+object MessageNotificationChannel {
+    const val CHANNEL_MESSAGES = "messages"
+
+    fun ensureCreated(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = context.getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_MESSAGES,
+                    context.getString(R.string.notification_channel_messages),
+                    NotificationManager.IMPORTANCE_DEFAULT
+                )
+            )
         }
     }
 }
@@ -72,27 +92,35 @@ class CipherFirebaseMessagingService : FirebaseMessagingService() {
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
-        val securePrefs = SecurePreferencesManager(applicationContext)
-        if (securePrefs.isApplicationForeground()) return
-        val conversationId = message.data["conversation_id"] ?: return
-        showNewMessageNotification(conversationId)
+        val conversationId = message.data["conversation_id"]
+        if (conversationId.isNullOrBlank()) {
+            Log.w("ChatSync", "Ignoring FCM event without a conversation_id")
+            return
+        }
+        Log.d("ChatSync", "FCM message received; queueing durable conversation catch-up")
+        IncomingMessageSyncWorker.enqueue(applicationContext, conversationId)
+        val senderName = message.data["sender_name"]
+            ?.trim()
+            ?.take(80)
+            ?.ifBlank { null }
+            ?: getString(R.string.notification_title_new_message)
+        showNewMessageNotification(conversationId, senderName)
     }
 
-    private fun showNewMessageNotification(conversationId: String) {
+    override fun onDeletedMessages() {
+        Log.w("ChatSync", "FCM reported deleted messages; queueing a full catch-up")
+        IncomingMessageSyncWorker.enqueue(applicationContext)
+    }
+
+    private fun showNewMessageNotification(conversationId: String, senderName: String) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) return
-
-        val manager = getSystemService(NotificationManager::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            manager.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_MESSAGES,
-                    getString(R.string.notification_channel_messages),
-                    NotificationManager.IMPORTANCE_DEFAULT
-                )
-            )
+        ) {
+            Log.w("ChatSync", "Push received, but notifications are disabled by Android permission")
+            return
         }
+
+        MessageNotificationChannel.ensureCreated(this)
 
         val openConversation = Intent(this, MainActivity::class.java).apply {
             putExtra(MainActivity.EXTRA_NOTIFICATION_CONVERSATION_ID, conversationId)
@@ -104,9 +132,9 @@ class CipherFirebaseMessagingService : FirebaseMessagingService() {
             openConversation,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val notification = NotificationCompat.Builder(this, CHANNEL_MESSAGES)
+        val notification = NotificationCompat.Builder(this, MessageNotificationChannel.CHANNEL_MESSAGES)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(getString(R.string.notification_title_new_message))
+            .setContentTitle(senderName)
             .setContentText(getString(R.string.notification_body_new_message))
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -114,10 +142,6 @@ class CipherFirebaseMessagingService : FirebaseMessagingService() {
             .setContentIntent(pendingIntent)
             .build()
         NotificationManagerCompat.from(this).notify(conversationId.hashCode(), notification)
-    }
-
-    companion object {
-        const val CHANNEL_MESSAGES = "messages"
     }
 }
 

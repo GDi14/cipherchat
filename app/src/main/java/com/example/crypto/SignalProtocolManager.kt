@@ -20,6 +20,7 @@ import org.whispersystems.libsignal.state.PreKeyBundle
 import org.whispersystems.libsignal.state.PreKeyRecord
 import org.whispersystems.libsignal.state.SignedPreKeyRecord
 import org.whispersystems.libsignal.util.KeyHelper
+import java.security.MessageDigest
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 import kotlinx.serialization.SerialName
@@ -93,9 +94,19 @@ class SignalProtocolManager(
             newId
         }
 
-        localIdentityKeyPair = pair
-        localRegistrationId = regId
         store = KeystoreSignalProtocolStore(securePrefs.encryptedPrefs, pair, regId)
+
+        // The store's identity is the one existing sessions were created with. Older versions
+        // kept a second copy under PREF_IDENTITY_KEY_PAIR, which could diverge after restore or
+        // partial preference corruption and publish a key that did not match the active sessions.
+        val persistedPair = store.persistedIdentityKeyPair()
+        val persistedRegistrationId = store.persistedRegistrationId()
+        securePrefs.encryptedPrefs.edit()
+            .putString(PREF_IDENTITY_KEY_PAIR, Base64.encodeToString(persistedPair.serialize(), Base64.NO_WRAP))
+            .putInt(PREF_REGISTRATION_ID, persistedRegistrationId)
+            .apply()
+        localIdentityKeyPair = persistedPair
+        localRegistrationId = persistedRegistrationId
     }
 
     /**
@@ -159,6 +170,35 @@ class SignalProtocolManager(
         )
 
         sessionBuilder.process(preKeyBundle)
+    }
+
+    /** Whether the cached session was established for the identity currently published by the peer. */
+    fun hasSessionForIdentity(recipientUserId: String, encodedIdentityKey: String): Boolean {
+        val address = SignalProtocolAddress(recipientUserId, 1)
+        if (!store.containsSession(address)) return false
+        val cachedIdentity = store.getIdentity(address) ?: return false
+        val publishedIdentity = IdentityKey(Base64.decode(encodedIdentityKey, Base64.NO_WRAP), 0)
+        return cachedIdentity == publishedIdentity
+    }
+
+    fun hasLocalPreKey(preKeyId: Int): Boolean = store.containsPreKey(preKeyId)
+
+    /** A stable, pairwise device-key fingerprint suitable for out-of-band comparison. */
+    fun peerFingerprint(peerUserId: String, encodedPeerIdentityKey: String): String {
+        val peerIdentity = IdentityKey(Base64.decode(encodedPeerIdentityKey, Base64.NO_WRAP), 0)
+        val entries = listOf(
+            localUserId to localIdentityKeyPair.publicKey.serialize(),
+            peerUserId to peerIdentity.serialize()
+        ).sortedBy { it.first }
+        val canonical = entries.joinToString("|") { (userId, key) ->
+            "$userId:${Base64.encodeToString(key, Base64.NO_WRAP)}"
+        }
+        return MessageDigest.getInstance("SHA-256")
+            .digest(canonical.toByteArray(Charsets.UTF_8))
+            .take(20)
+            .joinToString("") { "%02X".format(it) }
+            .chunked(4)
+            .joinToString(" ")
     }
 
     /**

@@ -40,6 +40,7 @@ data class ProfileAppearance(
 @Serializable
 data class PrekeyDto(
     @Json(name = "user_id") @SerialName("user_id") val userId: String,
+    @Json(name = "device_id") @SerialName("device_id") val deviceId: String? = null,
     @Json(name = "identity_key") @SerialName("identity_key") val identityKey: String,
     @Json(name = "registration_id") @SerialName("registration_id") val registrationId: Int,
     @Json(name = "signed_prekey_id") @SerialName("signed_prekey_id") val signedPrekeyId: Int,

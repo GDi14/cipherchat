@@ -41,6 +41,15 @@ class KeystoreSignalProtocolStore(
         }
     }
 
+    /** Returns the identity key already bound to this device's persisted Signal sessions. */
+    fun persistedIdentityKeyPair(): IdentityKeyPair = getIdentityKeyPair()
+    fun persistedRegistrationId(): Int = getLocalRegistrationId()
+
+    /** Forget a peer identity only after the user explicitly resets that peer's secure session. */
+    fun forgetIdentity(address: SignalProtocolAddress) {
+        prefs.edit().remove(PREF_PREFIX_IDENTITY + address.name + ":" + address.deviceId).apply()
+    }
+
     // ==========================================
     // IdentityKeyStore
     // ==========================================
@@ -51,6 +60,9 @@ class KeystoreSignalProtocolStore(
             try {
                 IdentityKeyPair(Base64.decode(b64, Base64.NO_WRAP))
             } catch (e: Exception) {
+                prefs.edit()
+                    .putString(KEY_LOCAL_IDENTITY_KEY_PAIR, Base64.encodeToString(identityKeyPair.serialize(), Base64.NO_WRAP))
+                    .apply()
                 identityKeyPair
             }
         } else {
