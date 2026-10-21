@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import android.content.Context
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -29,6 +30,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
@@ -68,6 +70,14 @@ import com.example.ui.model.DockCategory
 import com.example.ui.theme.DockInactiveText
 import com.example.ui.theme.DockObsidian
 import com.example.ui.theme.LocalExpressiveMotionEnabled
+import androidx.compose.ui.platform.LocalContext
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.widget.Toast
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.graphics.TransformOrigin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -88,10 +98,11 @@ private data class CategoryColorProfile(
     val specular: Color
 )
 
+@Composable
 private fun getCategoryColorProfile(category: DockCategory): CategoryColorProfile = CategoryColorProfile(
-    top = Color(0xFFFF6200),
-    bottom = Color(0xFFE03800),
-    specular = Color(0xFFFFA070)
+    top = MaterialTheme.colorScheme.primaryContainer,
+    bottom = MaterialTheme.colorScheme.primaryContainer,
+    specular = MaterialTheme.colorScheme.primary
 )
 
 /**
@@ -131,6 +142,51 @@ fun FluidSidebarDock(
     val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
+    val context = LocalContext.current
+
+    var isPoppedUp by remember { mutableStateOf(false) }
+
+    // Gesture Sensing for "Jerk to the Left"
+    DisposableEffect(context) {
+        val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        val gyroSensor = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+        
+        var lastJerkTime = 0L
+        
+        val listener = object : SensorEventListener {
+            override fun onSensorChanged(event: SensorEvent?) {
+                if (event == null) return
+                
+                if (event.sensor.type == Sensor.TYPE_GYROSCOPE) {
+                    val xGyro = event.values[0]
+                    val yGyro = event.values[1]
+                    val zGyro = event.values[2]
+                    
+                    // We removed the Gravity constraint so it works perfectly when laying flat.
+                    // We also bumped the X-axis cap from 2.5f up to 5.0f because your own 
+                    // recorded data showed X hitting up to 3.6 rad/s during a valid, strong jerk!
+                    val isNotPitchingExtreme = abs(xGyro) < 5.0f
+                    
+                    // The actual Left Jerk signature (from your graphs)
+                    if (isNotPitchingExtreme && zGyro > 2.5f && yGyro < -0.8f) {
+                        val currentTime = System.currentTimeMillis()
+                        // 1000ms cooldown so it doesn't multi-trigger
+                        if (currentTime - lastJerkTime > 1000) {
+                            lastJerkTime = currentTime
+                            isPoppedUp = true
+                        }
+                    }
+                }
+            }
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+        }
+        
+        gyroSensor?.let { sensorManager.registerListener(listener, it, SensorManager.SENSOR_DELAY_UI) }
+        
+        onDispose {
+            sensorManager.unregisterListener(listener)
+        }
+    }
 
     // Compact item spacing (38dp between item centers)
     val itemSpacingDp = 38.dp
@@ -151,6 +207,15 @@ fun FluidSidebarDock(
     val scrollOffset = remember { Animatable(selectedIndex.toFloat()) }
 
     var isPressed by remember { mutableStateOf(false) }
+    
+    // Auto-hide the dock after a few seconds of being popped up if not interacted with.
+    LaunchedEffect(isPoppedUp, isPressed) {
+        if (isPoppedUp && !isPressed) {
+            delay(5000)
+            isPoppedUp = false
+        }
+    }
+
     var lastHapticIndex by remember { mutableIntStateOf(selectedIndex) }
 
     // Flash intensity animatable (1f -> peak flash, 0f -> resting state)
@@ -242,6 +307,13 @@ fun FluidSidebarDock(
         label = "dockHeight"
     )
 
+    // Visibility transition: Shape morph progress from 0f (hidden) to 1f (visible)
+    val visibilityProgress by animateFloatAsState(
+        targetValue = if (isPoppedUp || isPressed) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 350f),
+        label = "visibilityProgress"
+    )
+
     // Current category at center
     val currentVirtualIndex = scrollOffset.value.roundToInt()
     val currentActualIndex = ((currentVirtualIndex % itemCount) + itemCount) % itemCount
@@ -279,7 +351,14 @@ fun FluidSidebarDock(
         modifier = modifier
             .testTag("fluid_sidebar_dock")
             .width(62.dp)
-            .height(currentDockHeight),
+            .height(currentDockHeight)
+            .graphicsLayer {
+                // Shape morph transition: morph from a thin vertical line on the right edge
+                scaleX = 0.05f + (0.95f * visibilityProgress)
+                scaleY = 0.6f + (0.4f * visibilityProgress)
+                alpha = visibilityProgress
+                transformOrigin = TransformOrigin(1f, 0.5f)
+            },
         contentAlignment = Alignment.CenterEnd
     ) {
         // Organic dark dock background with concave Bezier fillets.
@@ -546,7 +625,7 @@ fun FluidSidebarDock(
                         label = "rotatedLabel"
                     ) { title ->
                         val textStyle = TextStyle(
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
                             fontSize = 13.5.sp,
                             fontWeight = FontWeight.SemiBold,
                             letterSpacing = 0.4.sp,
@@ -613,7 +692,7 @@ fun FluidSidebarDock(
                     ) {
                         DockItemContent(
                             category = activeCategory,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                     }
                 }

@@ -1,6 +1,9 @@
 package com.example
 
 import android.os.Bundle
+import android.os.Build
+import androidx.activity.result.contract.ActivityResultContracts
+import android.Manifest
 import android.content.Intent
 import android.graphics.Color as AndroidColor
 import androidx.activity.ComponentActivity
@@ -158,8 +161,21 @@ class MainActivity : ComponentActivity() {
         super.onStop()
     }
 
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        if (isGranted) {
+            Log.d("MainActivity", "FCM Notifications permission granted")
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+
         MessageNotificationChannel.ensureCreated(this)
         notificationConversationRequest = intent?.getStringExtra(EXTRA_NOTIFICATION_CONVERSATION_ID)
         enableEdgeToEdge(

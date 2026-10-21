@@ -1,9 +1,14 @@
 package com.example.ui
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.content.Intent
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -51,6 +56,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -107,6 +113,15 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material.icons.filled.Update
+import androidx.compose.material3.LargeTopAppBar
+import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -120,6 +135,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.DisposableEffect
 import androidx.core.content.ContextCompat
 import com.example.data.local.SecurePreferencesManager
 import com.example.ui.dock.EdgeDockService
@@ -183,8 +204,12 @@ import java.util.Locale
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.text.ExperimentalTextApi
 import com.example.R
+import com.example.ui.theme.ExpressiveShapesList
+import com.example.ui.theme.ExpressiveStarShape
+import com.example.ui.theme.getRandomExpressiveShape
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 
@@ -296,7 +321,7 @@ fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, o
                                     model = R.drawable.cipher_chat_logo,
                                     contentDescription = "CypherChat logo",
                                     contentScale = ContentScale.Crop,
-                                    modifier = Modifier.size(36.dp).clip(MaterialTheme.shapes.small)
+                                    modifier = Modifier.size(36.dp).clip(CircleShape)
                                 )
                                 Text(
                                     when (state.selectedTab) { 1 -> "Your groups"; 2 -> "Calls"; else -> "Messages" },
@@ -338,7 +363,7 @@ fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, o
                                 }
                             }
                             Box(Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
-                                OutlinedTextField(
+                                TextField(
                                     value = pageSearchQuery,
                                     onValueChange = { pageSearchQuery = it },
                                     placeholder = { Text(when (state.selectedTab) {
@@ -348,8 +373,15 @@ fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, o
                                     }) },
                                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                                     singleLine = true,
-                                    shape = MaterialTheme.shapes.large,
-                                    modifier = Modifier.fillMaxWidth().height(58.dp).testTag("chat_search_input")
+                                    shape = CircleShape,
+                                    colors = TextFieldDefaults.colors(
+                                        focusedIndicatorColor = Color.Transparent,
+                                        unfocusedIndicatorColor = Color.Transparent,
+                                        disabledIndicatorColor = Color.Transparent,
+                                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                                    ),
+                                    modifier = Modifier.fillMaxWidth().height(56.dp).testTag("chat_search_input")
                                 )
                             }
                         }
@@ -507,8 +539,7 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                     modifier = Modifier
                         .widthIn(max = 1040.dp)
                         .fillMaxSize(),
-                    contentPadding = PaddingValues(start = horizontalMargin, end = horizontalMargin, top = 20.dp, bottom = 104.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    contentPadding = PaddingValues(top = 20.dp, bottom = 104.dp)
                 ) {
             if (showSearchField) {
                 item {
@@ -517,7 +548,7 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                         placeholder = { Text("Search people or messages") },
                         leadingIcon = { Icon(Icons.Default.Search, null) },
                         singleLine = true, shape = CircleShape,
-                        modifier = Modifier.fillMaxWidth().height(56.dp).testTag("chat_search_input")
+                        modifier = Modifier.fillMaxWidth().height(56.dp).padding(start = horizontalMargin, end = horizontalMargin, bottom = 16.dp).testTag("chat_search_input")
                     )
                 }
             }
@@ -541,6 +572,7 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .padding(horizontal = horizontalMargin)
                                 .onGloballyPositioned { coordinates ->
                                     onYourCircleCenterMeasured(
                                         coordinates.positionInRoot().y.roundToInt() + coordinates.size.height / 2
@@ -548,16 +580,7 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                                 }
                         ) {
                             Column(Modifier.padding(start = 16.dp, end = 14.dp, top = 14.dp, bottom = 12.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text("Your Circle", style = MaterialTheme.typography.titleLarge)
-                                    }
-                                    onAddFriends?.let {
-                                        FilledTonalIconButton(onClick = it) {
-                                            Icon(Icons.Default.PersonAdd, contentDescription = "Add friends")
-                                        }
-                                    }
-                                }
+                                Text("Your Circle", style = MaterialTheme.typography.titleLarge)
                                 val favoriteFriends = friends.filter { it.id in favoriteFriendIds }
                                 if (favoriteFriends.isEmpty()) {
                                     Text(
@@ -566,20 +589,53 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                                         modifier = Modifier.padding(top = 8.dp)
                                     )
+                                    onAddFriends?.let {
+                                        FilledTonalButton(onClick = it, modifier = Modifier.padding(top = 12.dp)) {
+                                            Icon(Icons.Default.PersonAdd, null)
+                                            Spacer(Modifier.width(8.dp))
+                                            Text("Add friends")
+                                        }
+                                    }
                                 } else {
                                     Spacer(Modifier.height(10.dp))
                                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        items(favoriteFriends, key = { it.id }) { friend ->
+                                        onAddFriends?.let {
+                                            item {
+                                                    Surface(
+                                                        onClick = it,
+                                                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                                                        color = Color.Transparent,
+                                                        modifier = Modifier.width(92.dp)
+                                                    ) {
+                                                        Column(
+                                                            Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+                                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                                        ) {
+                                                            Surface(
+                                                                shape = ExpressiveStarShape,
+                                                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                                                modifier = Modifier.size(80.dp)
+                                                            ) {
+                                                                Icon(Icons.Default.PersonAdd, contentDescription = "Add friends", modifier = Modifier.padding(24.dp))
+                                                            }
+                                                            Text("Add", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                                                        }
+                                                    }
+                                            }
+                                        }
+                                        itemsIndexed(favoriteFriends, key = { _, it -> it.id }) { index, friend ->
                                             val conversation = conversations.firstOrNull { it.otherUserId == friend.id && it.type == "direct" }
+                                            val assignedShape = ExpressiveShapesList[(index + 1) % ExpressiveShapesList.size]
                                             Surface(
                                                 onClick = {
                                                     conversation?.let { onOpenConversation(it.id) }
                                                         ?: onOpenConversationWithFriend(friend)
                                                 },
-                                                shape = CircleShape,
+                                                shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
                                                 color = Color.Transparent,
                                                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            modifier = Modifier.width(104.dp).testTag("circle_friend_${friend.id}")
+                                                modifier = Modifier.width(104.dp).testTag("circle_friend_${friend.id}")
                                             ) {
                                                 Column(
                                                     Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
@@ -587,7 +643,7 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                                                     verticalArrangement = Arrangement.spacedBy(6.dp)
                                                 ) {
                                                     ExpressiveAvatar(friend.displayName, friend.avatarPath, 80.dp,
-                                                        modifier = Modifier.clickable { onOpenProfile(friend.id) })
+                                                        shape = assignedShape, border = null)
                                                     Text(friend.displayName, style = MaterialTheme.typography.labelSmall,
                                                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                                                 }
@@ -601,35 +657,55 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                 }
             }
             item {
-                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp, start = horizontalMargin, end = horizontalMargin), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(if (filter == 0) "Recent messages" else "Your conversations", style = MaterialTheme.typography.titleLarge)
                     }
-                    if (visible.isNotEmpty()) Badge(containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer) { Text("${visible.size}") }
                 }
             }
             item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = horizontalMargin),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(bottom = 12.dp)
+                ) {
                     itemsIndexed(filters) { index, label ->
-                        FilterChip(selected = filter == index, onClick = { filter = index }, label = { Text(label) },
-                            shape = CircleShape)
+                        FilterChip(
+                            selected = filter == index,
+                            onClick = { filter = index },
+                            label = {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(label)
+                                    if (label == "Unread") {
+                                        val totalUnread = conversations.count { it.unreadCount > 0 }
+                                        if (totalUnread > 0) {
+                                            Badge(
+                                                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                                contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+                                            ) { Text("$totalUnread") }
+                                        }
+                                    }
+                                }
+                            },
+                            shape = CircleShape
+                        )
                     }
                 }
             }
             if (visible.isEmpty()) {
-                item {
-                    ExpressiveEmptyState(
-                        title = if (query.isNotBlank()) "No conversations found" else "Start with someone you trust",
-                        description = if (query.isNotBlank()) "Try another name or clear your search."
-                        else "Add a friend or create an encrypted group to begin chatting.",
-                        icon = { Icon(Icons.AutoMirrored.Filled.Chat, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(42.dp)) },
-                        actionLabel = if (query.isBlank()) "Create a group" else null,
-                        onAction = if (query.isBlank()) onStartGroup else null
-                    )
-                }
+            item {
+                ExpressiveEmptyState(
+                    title = if (query.isNotBlank()) "No conversations found" else "Start with someone you trust",
+                    description = if (query.isNotBlank()) "Try another name or clear your search."
+                    else "Add a friend or create an encrypted group to begin chatting.",
+                    icon = { Icon(Icons.AutoMirrored.Filled.Chat, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(42.dp)) },
+                    actionLabel = if (query.isBlank()) "Create a group" else null,
+                    onAction = if (query.isBlank()) onStartGroup else null,
+                    modifier = Modifier.padding(horizontal = horizontalMargin)
+                )
+            }
             } else {
-                items(visible, key = { it.id }) { conversation ->
+                itemsIndexed(visible, key = { _, it -> it.id }) { index, conversation ->
                     val conversationAvatarPath = conversation.otherUserId?.let { otherUserId ->
                         friends.firstOrNull { it.id == otherUserId }?.avatarPath
                     }
@@ -640,12 +716,21 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                             SimpleDateFormat(if (hours < 24) "HH:mm" else "MMM d", Locale.getDefault()).format(date)
                         }
                     }
+                    
+                    val shape = when {
+                        visible.size == 1 -> androidx.compose.foundation.shape.RoundedCornerShape(24.dp)
+                        index == 0 -> RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
+                        index == visible.lastIndex -> RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
+                        else -> androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+                    }
+                    
+                    val isUnread = conversation.unreadCount > 0
+                    
                     Surface(
                         onClick = { onOpenConversation(conversation.id) },
-                        shape = MaterialTheme.shapes.extraLarge,
-                        color = if (conversation.unreadCount > 0) MaterialTheme.colorScheme.secondaryContainer
-                        else MaterialTheme.colorScheme.surface,
-                        modifier = Modifier.fillMaxWidth()
+                        shape = shape,
+                        color = if (isUnread) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surface,
+                        modifier = Modifier.fillMaxWidth().padding(start = horizontalMargin, end = horizontalMargin, bottom = 2.dp)
                     ) {
                         ListItem(
                             leadingContent = {
@@ -657,7 +742,7 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                             headlineContent = {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text(conversation.title ?: "Encrypted conversation", style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = if (conversation.unreadCount > 0) FontWeight.Bold else FontWeight.Medium,
+                                        fontWeight = if (isUnread) FontWeight.Bold else FontWeight.Medium,
                                         maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                                 }
                             },
@@ -671,7 +756,7 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                                     else -> null
                                 }
                                 if (previewType == null) {
-                                    Text(preview, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(preview, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = if (isUnread) FontWeight.Bold else FontWeight.Normal, color = if (isUnread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
                                 } else {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
@@ -685,12 +770,14 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                                             },
                                             contentDescription = null,
                                             modifier = Modifier.size(16.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            tint = if (isUnread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                         Text(
                                             text = normalizedPreview,
                                             maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                            overflow = TextOverflow.Ellipsis,
+                                            fontWeight = if (isUnread) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isUnread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
                                 }
@@ -698,8 +785,13 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                             trailingContent = {
                                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(5.dp)) {
                                     if (time.isNotBlank()) Text(time, style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    if (conversation.unreadCount > 0) Badge { Text("${conversation.unreadCount}") }
+                                        color = if (isUnread) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = if (isUnread) FontWeight.Bold else FontWeight.Normal)
+                                    if (isUnread) {
+                                        Box(
+                                            modifier = Modifier.size(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary)
+                                        )
+                                    }
                                 }
                             },
                             colors = ListItemDefaults.colors(containerColor = Color.Transparent)
@@ -944,42 +1036,60 @@ fun M3AppSettingsPage(viewModel: HomeViewModel, onBack: () -> Unit) {
     var isDownloadingUpdate by remember { mutableStateOf(false) }
     var downloadProgress by remember { mutableIntStateOf(0) }
     var showReleaseNotes by remember { mutableStateOf(false) }
+    
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            TopAppBar(
+            LargeTopAppBar(
                 navigationIcon = {
                     IconButton(onClick = onBack, modifier = Modifier.testTag("back_button")) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 title = { Text("App settings") },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+                scrollBehavior = scrollBehavior,
+                colors = TopAppBarDefaults.largeTopAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         }
     ) { pagePadding ->
     Box(Modifier.fillMaxSize().padding(pagePadding), contentAlignment = Alignment.TopCenter) {
     Column(Modifier.widthIn(max = 900.dp).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("PREFERENCES", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-        Text("App settings", style = MaterialTheme.typography.headlineSmall)
         Text("Privacy and sync", style = MaterialTheme.typography.titleLarge)
         ListItem(leadingContent = { Icon(Icons.Default.Security, null) }, headlineContent = { Text("End-to-end encryption") },
             supportingContent = { Text("Messages are encrypted on this device") },
             modifier = Modifier.fillMaxWidth().clip(ExpressiveCardShape),
+            trailingContent = {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.Lock, contentDescription = "Encrypted", modifier = Modifier.size(16.dp))
+                    }
+                }
+            },
             colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow))
         Text("Notifications", style = MaterialTheme.typography.titleLarge)
         ListItem(
             leadingContent = { Icon(Icons.Default.Notifications, contentDescription = null) },
             headlineContent = { Text(if (notificationsAllowed) "Message alerts enabled" else "Message alerts disabled") },
             supportingContent = { Text("Notifications use generic text so encrypted message content stays private.") },
-            modifier = Modifier.fillMaxWidth().clip(ExpressiveCardShape),
+            modifier = Modifier.fillMaxWidth().clip(ExpressiveCardShape).clickable {
+                if (!notificationsAllowed && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                    }
+                    context.startActivity(intent)
+                }
+            },
             colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-            trailingContent = {
-                FilledTonalButton(
-                    shape = ExpressiveButtonShape,
-                    enabled = !notificationsAllowed && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU,
-                    onClick = { notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
-                ) { Text(if (notificationsAllowed) "Enabled" else "Enable") }
-            }
+            trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Notification settings") }
         )
         Text("Quick access", style = MaterialTheme.typography.titleLarge)
         ListItem(
@@ -991,6 +1101,9 @@ fun M3AppSettingsPage(viewModel: HomeViewModel, onBack: () -> Unit) {
             trailingContent = {
                 Switch(
                     checked = edgeDockEnabled,
+                    thumbContent = if (edgeDockEnabled) {
+                        { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(SwitchDefaults.IconSize)) }
+                    } else null,
                     onCheckedChange = { enabled ->
                         if (!enabled) {
                             dockPreferences.setEdgeDockEnabled(false)
@@ -1014,78 +1127,89 @@ fun M3AppSettingsPage(viewModel: HomeViewModel, onBack: () -> Unit) {
             }
         )
         Text("Application updates", style = MaterialTheme.typography.titleLarge)
-        OutlinedCard(modifier = Modifier.fillMaxWidth(), shape = ExpressiveCardShape) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(updateMessage, style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                release?.let { latest ->
-                    TextButton(onClick = { showReleaseNotes = true }) {
-                        Text("View release notes · ${latest.tagName}")
-                    }
-                }
-                if (isDownloadingUpdate) {
-                    LinearProgressIndicator(progress = { downloadProgress / 100f }, modifier = Modifier.fillMaxWidth())
-                    Text("Downloading update · $downloadProgress%", style = MaterialTheme.typography.labelLarge)
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Button(
-                        shape = ExpressiveButtonShape,
-                        enabled = !isCheckingUpdate && !isDownloadingUpdate,
-                        onClick = {
-                            isCheckingUpdate = true
-                            updateMessage = "Checking for updates…"
-                            scope.launch {
-                                val found = AppUpdater.checkForUpdate(context)
-                                isCheckingUpdate = false
-                                release = found
-                                updateMessage = when {
-                                    found == null -> "Couldn't find a release APK. Check your connection and try again."
-                                    AppUpdater.isNewerRelease(found.tagName, AppUpdater.getCurrentVersionName(context)) ->
-                                        "Version ${found.tagName} is available. Review the release notes before installing."
-                                    else -> "You're up to date · ${AppUpdater.getCurrentVersionName(context)}"
-                                }
-                            }
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 4.dp, bottomEnd = 4.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Icon(Icons.Default.Update, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Column {
+                            Text("App updates", style = MaterialTheme.typography.titleMedium)
+                            Text(updateMessage, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                    ) {
-                        if (isCheckingUpdate) ExpressiveContainedLoadingIndicator(Modifier.size(20.dp), size = 16.dp)
-                        else Text("Check for updates")
                     }
-                    val available = release?.takeIf {
-                        AppUpdater.isNewerRelease(it.tagName, AppUpdater.getCurrentVersionName(context))
+                    release?.let { latest ->
+                        TextButton(onClick = { showReleaseNotes = true }) {
+                            Text("View release notes · ${latest.tagName}")
+                        }
                     }
-                    available?.let { latest ->
+                    if (isDownloadingUpdate) {
+                        LinearProgressIndicator(progress = { downloadProgress / 100f }, modifier = Modifier.fillMaxWidth())
+                        Text("Downloading update · $downloadProgress%", style = MaterialTheme.typography.labelLarge)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         FilledTonalButton(
                             shape = ExpressiveButtonShape,
-                            enabled = !isDownloadingUpdate,
+                            enabled = !isCheckingUpdate && !isDownloadingUpdate,
                             onClick = {
-                                isDownloadingUpdate = true
-                                downloadProgress = 0
+                                isCheckingUpdate = true
+                                updateMessage = "Checking for updates…"
                                 scope.launch {
-                                    AppUpdater.downloadAndInstall(
-                                        context = context,
-                                        apkUrl = latest.apkUrl,
-                                        onProgress = { downloadProgress = it },
-                                        onError = { message ->
-                                            isDownloadingUpdate = false
-                                            updateMessage = "Update download failed: $message"
-                                        }
-                                    )
-                                    if (isDownloadingUpdate) {
-                                        isDownloadingUpdate = false
-                                        updateMessage = "Android's package installer was opened. Follow its prompts to finish updating."
+                                    val found = AppUpdater.checkForUpdate(context)
+                                    isCheckingUpdate = false
+                                    release = found
+                                    updateMessage = when {
+                                        found == null -> "Couldn't find a release APK. Check your connection and try again."
+                                        AppUpdater.isNewerRelease(found.tagName, AppUpdater.getCurrentVersionName(context)) ->
+                                            "Version ${found.tagName} is available. Review the release notes before installing."
+                                        else -> "You're up to date · ${AppUpdater.getCurrentVersionName(context)}"
                                     }
                                 }
                             }
-                        ) { Text("Install ${latest.tagName}") }
+                        ) {
+                            if (isCheckingUpdate) ExpressiveContainedLoadingIndicator(Modifier.size(20.dp), size = 16.dp)
+                            else Text("Check for updates")
+                        }
+                        val available = release?.takeIf {
+                            AppUpdater.isNewerRelease(it.tagName, AppUpdater.getCurrentVersionName(context))
+                        }
+                        available?.let { latest ->
+                            FilledTonalButton(
+                                shape = ExpressiveButtonShape,
+                                enabled = !isDownloadingUpdate,
+                                onClick = {
+                                    isDownloadingUpdate = true
+                                    downloadProgress = 0
+                                    scope.launch {
+                                        AppUpdater.downloadAndInstall(
+                                            context = context,
+                                            apkUrl = latest.apkUrl,
+                                            onProgress = { downloadProgress = it },
+                                            onError = { message ->
+                                                isDownloadingUpdate = false
+                                                updateMessage = "Update download failed: $message"
+                                            }
+                                        )
+                                        if (isDownloadingUpdate) {
+                                            isDownloadingUpdate = false
+                                            updateMessage = "Android's package installer was opened. Follow its prompts to finish updating."
+                                        }
+                                    }
+                                }
+                            ) { Text("Install ${latest.tagName}") }
+                        }
                     }
                 }
             }
+            ListItem(leadingContent = { Icon(Icons.Default.CloudDone, null) }, headlineContent = { Text("Cloud relay") },
+                supportingContent = { Text(if (viewModel.supabaseProvider.isConfigured) "Connected" else "Not configured") },
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 24.dp, bottomEnd = 24.dp)),
+                colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                trailingContent = { FilledTonalButton(shape = ExpressiveButtonShape, onClick = { viewModel.showSupabaseDialog(true) }) { Text("Configure") } })
         }
-        ListItem(leadingContent = { Icon(Icons.Default.CloudDone, null) }, headlineContent = { Text("Cloud relay") },
-            supportingContent = { Text(if (viewModel.supabaseProvider.isConfigured) "Connected" else "Not configured") },
-            modifier = Modifier.fillMaxWidth().clip(ExpressiveCardShape),
-            colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-            trailingContent = { FilledTonalButton(shape = ExpressiveButtonShape, onClick = { viewModel.showSupabaseDialog(true) }) { Text("Configure") } })
         Text("Appearance and motion", style = MaterialTheme.typography.titleLarge)
         ListItem(
             leadingContent = { Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
@@ -1093,7 +1217,15 @@ fun M3AppSettingsPage(viewModel: HomeViewModel, onBack: () -> Unit) {
             supportingContent = { Text("Subtly emphasizes expressive words after sending. Message text stays unchanged.") },
             modifier = Modifier.fillMaxWidth().clip(ExpressiveCardShape),
             colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-            trailingContent = { Switch(checked = state.voiceOfUserEnabled, onCheckedChange = viewModel::setVoiceOfUserEnabled) }
+            trailingContent = {
+                Switch(
+                    checked = state.voiceOfUserEnabled,
+                    thumbContent = if (state.voiceOfUserEnabled) {
+                        { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(SwitchDefaults.IconSize)) }
+                    } else null,
+                    onCheckedChange = viewModel::setVoiceOfUserEnabled
+                )
+            }
         )
     }
     }
@@ -1279,95 +1411,185 @@ fun M3ProfileTab(viewModel: HomeViewModel, onBack: (() -> Unit)? = null) {
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         viewModel.updateProfile(name, tag, uri)
     }
+    
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            onBack?.let { back ->
-                TopAppBar(
-                    navigationIcon = {
+            LargeTopAppBar(
+                navigationIcon = {
+                    onBack?.let { back ->
                         IconButton(onClick = back, modifier = Modifier.testTag("back_button")) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
-                    },
-                    title = { Text("Profile and customisation") },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
-                )
+                    }
+                },
+                title = { Text("Profile and customisation") },
+                scrollBehavior = scrollBehavior,
+                colors = TopAppBarDefaults.largeTopAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+            )
+        },
+        bottomBar = {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Button(
+                    onClick = { viewModel.updateProfile(name, tag, null) },
+                    modifier = Modifier.fillMaxWidth().padding(16.dp).testTag("save_profile_button")
+                ) {
+                    Text("Save profile")
+                }
             }
         }
     ) { pagePadding ->
-    Box(Modifier.fillMaxSize().padding(pagePadding), contentAlignment = Alignment.TopCenter) {
-    Column(Modifier.widthIn(max = 900.dp).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(20.dp)) {
-        Card(shape = MaterialTheme.shapes.extraLarge,
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-            modifier = Modifier.fillMaxWidth()) {
-          Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Profile and customisation", style = MaterialTheme.typography.headlineSmall)
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Profile details", style = MaterialTheme.typography.titleLarge)
+        Box(Modifier.fillMaxSize().padding(pagePadding), contentAlignment = Alignment.TopCenter) {
+            Column(
+                Modifier.widthIn(max = 900.dp).fillMaxSize().verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
+                // Profile Details
                 Surface(
-                    onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                    modifier = Modifier.size(72.dp).testTag("profile_avatar_picker"),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    val avatar = auth.getAvatarPath()
-                    if (!avatar.isNullOrBlank()) AsyncImage(
-                        model = avatar,
-                        contentDescription = "Change profile photo",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize().clip(CircleShape)
-                    )
-                    else ExpressiveAvatar(name, size = 64.dp)
+                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text("Profile details", style = MaterialTheme.typography.titleLarge)
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth()) {
+                            Box(contentAlignment = Alignment.BottomEnd) {
+                                Surface(
+                                    onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                    modifier = Modifier.size(96.dp).testTag("profile_avatar_picker"),
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.surfaceContainerHigh
+                                ) {
+                                    val avatar = auth.getAvatarPath()
+                                    if (!avatar.isNullOrBlank()) AsyncImage(
+                                        model = avatar,
+                                        contentDescription = "Change profile photo",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize().clip(CircleShape)
+                                    )
+                                    else ExpressiveAvatar(name, size = 96.dp)
+                                }
+                                SmallFloatingActionButton(
+                                    onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                    shape = CircleShape,
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(32.dp).offset(x = 4.dp, y = 4.dp)
+                                ) {
+                                    Icon(Icons.Default.Edit, contentDescription = "Edit photo", modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                        OutlinedTextField(
+                            value = name,
+                            onValueChange = { name = it },
+                            label = { Text("Display name") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().testTag("profile_name_input")
+                        )
+                        OutlinedTextField(
+                            value = tag,
+                            onValueChange = { tag = it.trim().removePrefix("@").lowercase() },
+                            label = { Text("Unique tag") },
+                            prefix = { Text("@") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().testTag("profile_tag_input")
+                        )
+                        OutlinedTextField(
+                            value = state.profileAppearance.bio,
+                            onValueChange = { viewModel.updateProfileAppearance(state.profileAppearance.copy(bio = it.take(300))) },
+                            label = { Text("Bio / Status") },
+                            singleLine = false,
+                            minLines = 2,
+                            maxLines = 4,
+                            modifier = Modifier.fillMaxWidth().testTag("profile_bio_input")
+                        )
+                        state.statusMessage?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall) }
+                        state.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                    }
                 }
-                OutlinedTextField(name, { name = it }, label = { Text("Display name") }, singleLine = true,
-                    modifier = Modifier.fillMaxWidth().testTag("profile_name_input"))
-                OutlinedTextField(tag, { tag = it.trim().removePrefix("@").lowercase() }, label = { Text("Unique tag") },
-                    prefix = { Text("@") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("profile_tag_input"))
-                Button(onClick = { viewModel.updateProfile(name, tag, null) }, modifier = Modifier.fillMaxWidth().testTag("save_profile_button")) {
-                    Text("Save profile")
+
+                // Customisation
+                Surface(
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text("Customisation", style = MaterialTheme.typography.titleLarge)
+                        ProfileAppearanceSettings(
+                            appearance = state.profileAppearance,
+                            previewName = name,
+                            previewTag = tag,
+                            previewAvatarPath = auth.getAvatarPath(),
+                            saveMessage = state.statusMessage,
+                            saveError = state.errorMessage,
+                            onAppearanceChange = viewModel::updateProfileAppearance,
+                            onSave = viewModel::publishProfileAppearance
+                        )
+                    }
                 }
-                state.statusMessage?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall) }
-                state.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+
+                // Security & devices
+                Surface(
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(vertical = 20.dp)) {
+                        Text("Security & devices", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 8.dp))
+                        ListItem(
+                            leadingContent = { Icon(Icons.Default.Security, null, tint = MaterialTheme.colorScheme.primary) },
+                            headlineContent = { Text("End-to-end encryption") },
+                            supportingContent = { Text("libsignal Double Ratchet + X3DH") },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                        )
+                        ListItem(
+                            leadingContent = { Icon(Icons.Default.Lock, null, tint = MaterialTheme.colorScheme.primary) },
+                            headlineContent = { Text("Private key storage") },
+                            supportingContent = { Text("Android hardware-backed KeyStore") },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                        )
+                        ListItem(
+                            leadingContent = { Icon(Icons.Default.VpnKey, null, tint = MaterialTheme.colorScheme.primary) },
+                            headlineContent = { Text("Device identifier") },
+                            supportingContent = { Text("${auth.myDeviceId.take(16)}…", fontFamily = FontFamily.Monospace) },
+                            trailingContent = {
+                                IconButton(onClick = { clipboard.setText(AnnotatedString(auth.myDeviceId)) }) {
+                                    Icon(Icons.Default.ContentCopy, contentDescription = "Copy device identifier")
+                                }
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                        )
+                        ListItem(
+                            leadingContent = {
+                                Icon(
+                                    if (cloud.isConfigured) Icons.Default.CloudDone else Icons.Default.CloudOff,
+                                    null,
+                                    tint = if (cloud.isConfigured) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                )
+                            },
+                            headlineContent = { Text("Cloud relay") },
+                            supportingContent = { Text(if (cloud.isConfigured) "Connected" else "Not configured") },
+                            trailingContent = {
+                                FilledTonalButton(
+                                    onClick = { viewModel.showSupabaseDialog(true) },
+                                    modifier = Modifier.testTag("open_supabase_config_button")
+                                ) { Text("Configure") }
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                        )
+                    }
+                }
+                Spacer(Modifier.height(48.dp)) // padding for bottom bar
             }
-            Text("Customisation", style = MaterialTheme.typography.titleLarge)
-            ProfileAppearanceSettings(
-            appearance = state.profileAppearance,
-            previewName = name,
-            previewTag = tag,
-            previewAvatarPath = auth.getAvatarPath(),
-            saveMessage = state.statusMessage,
-            saveError = state.errorMessage,
-            onAppearanceChange = viewModel::updateProfileAppearance,
-            onSave = viewModel::publishProfileAppearance
-            )
-            Column {
-                Text("Security & devices", style = MaterialTheme.typography.titleLarge)
-                ListItem(leadingContent = { Icon(Icons.Default.Security, null, tint = MaterialTheme.colorScheme.primary) },
-                    headlineContent = { Text("End-to-end encryption") }, supportingContent = { Text("libsignal Double Ratchet + X3DH") },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent))
-                ListItem(leadingContent = { Icon(Icons.Default.Lock, null, tint = MaterialTheme.colorScheme.primary) },
-                    headlineContent = { Text("Private key storage") }, supportingContent = { Text("Android hardware-backed KeyStore") },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent))
-                ListItem(leadingContent = { Icon(Icons.Default.VpnKey, null, tint = MaterialTheme.colorScheme.primary) },
-                    headlineContent = { Text("Device identifier") }, supportingContent = { Text("${auth.myDeviceId.take(16)}…", fontFamily = FontFamily.Monospace) },
-                    trailingContent = { IconButton(onClick = { clipboard.setText(AnnotatedString(auth.myDeviceId)) }) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy device identifier")
-                    } }, colors = ListItemDefaults.colors(containerColor = Color.Transparent))
-                ListItem(leadingContent = { Icon(if (cloud.isConfigured) Icons.Default.CloudDone else Icons.Default.CloudOff,
-                    null, tint = if (cloud.isConfigured) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) },
-                    headlineContent = { Text("Cloud relay") },
-                    supportingContent = { Text(if (cloud.isConfigured) "Connected" else "Not configured") },
-                    trailingContent = { FilledTonalButton(onClick = { viewModel.showSupabaseDialog(true) },
-                        modifier = Modifier.testTag("open_supabase_config_button")) { Text("Configure") } },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent))
-            }
-          }
         }
-        Spacer(Modifier.height(12.dp))
-    }
-    }
     }
 }

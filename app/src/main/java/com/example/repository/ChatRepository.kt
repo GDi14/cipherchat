@@ -38,6 +38,13 @@ import io.github.jan.supabase.realtime.realtime
 import io.github.jan.supabase.storage.storage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.NetworkType
+import androidx.work.Constraints
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -108,7 +115,11 @@ class ChatRepository(
     }
 
     fun clearEmphasisAnimation(messageIds: Collection<String>) {
-        _emphasisAnimationMessageIds.value = _emphasisAnimationMessageIds.value - messageIds.toSet()
+        if (messageIds.isEmpty()) {
+            _emphasisAnimationMessageIds.value = emptySet()
+        } else {
+            _emphasisAnimationMessageIds.value = _emphasisAnimationMessageIds.value - messageIds.toSet()
+        }
     }
 
     private var realtimeChannelJob: Job? = null
@@ -127,6 +138,13 @@ class ChatRepository(
 
     fun getMessagesForConversation(convId: String): Flow<List<MessageEntity>> =
         database.messageDao().getLatestMessagesForConversation(convId, 300).map { it.asReversed() }
+
+    fun getPagedMessagesForConversation(convId: String): Flow<PagingData<MessageEntity>> =
+        Pager(
+            config = PagingConfig(pageSize = 30, enablePlaceholders = false)
+        ) {
+            database.messageDao().getMessagesForConversationPaged(convId)
+        }.flow
 
     suspend fun getOlderMessages(
         convId: String,
@@ -245,12 +263,22 @@ class ChatRepository(
                 replySnippet = payload.replySnippet,
                 textEmphasisJson = MessagePayloadCodec.encodeEmphasisRanges(textEmphasisRanges),
                 status = "sending",
+                syncStatus = "pending",
                 timestamp = timestamp
             )
             database.messageDao().insertOrUpdate(optimisticMessage)
             if (textEmphasisRanges.isNotEmpty()) _emphasisAnimationMessageIds.value += messageId
             database.conversationDao().updateLastMessage(conversationId, text.trim(), timestamp)
             optimisticMessageSaved = true
+
+            // Enqueue WorkManager for background offline-first sync
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build()
+            val workRequest = OneTimeWorkRequestBuilder<MessageSyncWorker>()
+                .setConstraints(constraints)
+                .build()
+            WorkManager.getInstance(context).enqueue(workRequest)
 
             val isDirect = conv.type == "direct"
             val recipientId = conv.otherUserId

@@ -4,6 +4,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.fillMaxSize
@@ -50,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -121,6 +123,8 @@ fun ExpressiveAvatar(
     avatarUrl: String? = null,
     size: Dp = 48.dp,
     isActive: Boolean = false,
+    shape: Shape = CircleShape,
+    border: BorderStroke? = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     modifier: Modifier = Modifier
 ) {
     val usePrimaryContainer = (name.hashCode() and 1) == 0
@@ -134,17 +138,17 @@ fun ExpressiveAvatar(
     ) {
         Surface(
             modifier = Modifier.size(size),
-            shape = CircleShape,
+            shape = shape,
             color = avatarContainerColor,
             contentColor = avatarContentColor,
-            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            border = border
         ) {
             if (!avatarUrl.isNullOrBlank()) {
                 AsyncImage(
                     model = avatarUrl,
                     contentDescription = name,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.matchParentSize().clip(CircleShape)
+                    modifier = Modifier.matchParentSize().clip(shape)
                 )
             } else {
                 Text(
@@ -219,7 +223,7 @@ fun ExpressiveEmptyState(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(32.dp),
+            .padding(vertical = 48.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {

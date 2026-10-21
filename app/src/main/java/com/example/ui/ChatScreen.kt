@@ -14,6 +14,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -128,7 +130,15 @@ import com.example.ui.theme.ExpressiveMotion
 import com.example.ui.theme.ExpressiveBottomSurfaceShape
 import com.example.ui.theme.ExpressiveTopSurfaceShape
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.composed
 import androidx.compose.ui.platform.LocalContext
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemKey
+import androidx.paging.compose.itemContentType
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.testTag
@@ -158,6 +168,7 @@ import com.example.ui.theme.PillShape
 import com.example.ui.theme.ExpressiveIncomingBubbleShape
 import com.example.ui.theme.ExpressiveOutgoingBubbleShape
 import com.example.ui.theme.LocalExpressiveMotionEnabled
+import com.vanniktech.blurhash.BlurHash
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.coroutineScope
@@ -171,6 +182,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
 
 private data class SendFlight(
     val messageId: String,
@@ -227,10 +239,23 @@ fun ChatScreen(
                 ?: friendRepository.getProfileById(id)?.avatarPath
         }
     }
-    val messagesState = viewModel.messages.collectAsState()
-    val messages by messagesState
-    val groupSenderIds = remember(messages, uiState.conversation?.type) {
-        if (uiState.conversation?.type == "group") messages.map { it.senderId }.distinct() else emptyList()
+    val messages = viewModel.messages.collectAsLazyPagingItems()
+    val pendingMessages by viewModel.pendingMessages.collectAsState()
+    
+    val loadedMessageIds = remember(messages.itemSnapshotList.items) {
+        messages.itemSnapshotList.items.map { it.id }.toSet()
+    }
+    
+    // Sort descending because reverseLayout=true means first item in LazyColumn is drawn at the bottom
+    val visiblePending = remember(pendingMessages, loadedMessageIds) {
+        pendingMessages.filterNot { it.id in loadedMessageIds }.sortedByDescending { it.timestamp }
+    }
+    
+    val totalMessageCount = messages.itemCount + visiblePending.size
+    
+    val loadedMessages = messages.itemSnapshotList.items
+    val groupSenderIds = remember(loadedMessages, uiState.conversation?.type) {
+        if (uiState.conversation?.type == "group") loadedMessages.map { it.senderId }.distinct() else emptyList()
     }
     var groupSenderAvatarPaths by remember(viewModel.conversationId) { mutableStateOf<Map<String, String?>>(emptyMap()) }
     LaunchedEffect(groupSenderIds) {
@@ -279,48 +304,38 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(messages.size, uiState.sendingMediaUri) {
+    LaunchedEffect(totalMessageCount, uiState.sendingMediaUri) {
         if (sendFlight != null) return@LaunchedEffect
 
         if (!initialMessagePositioned) {
-            if (messages.isNotEmpty()) {
-                // Jump directly to the newest message on first open. Animating
-                // from the oldest item makes long conversations visibly stutter.
-                listState.scrollToItem(messages.lastIndex)
+            if (totalMessageCount > 0) {
+                if (uiState.initialUnreadCount > 0) {
+                    // Scroll to the unread divider which is placed exactly at initialUnreadCount
+                    val scrollTarget = uiState.initialUnreadCount.coerceAtMost(totalMessageCount - 1)
+                    listState.scrollToItem(scrollTarget)
+                } else {
+                    listState.scrollToItem(0)
+                }
                 initialMessagePositioned = true
-                previousMessageCount = messages.size
             }
             return@LaunchedEffect
         }
 
-        val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index
-        val wasFollowingLatest = previousMessageCount == 0 ||
-            (lastVisibleIndex != null && lastVisibleIndex >= previousMessageCount - 2)
-        val newMessagesArrived = messages.size > previousMessageCount
-        if (wasFollowingLatest && (newMessagesArrived || uiState.sendingMediaUri != null)) {
-            // Wait for the new row and composer height to settle before following.
-            // Use the real last item so transient rows cannot invalidate the target.
-            withFrameNanos { }
-            val targetIndex = listState.layoutInfo.totalItemsCount - 1
-            if (targetIndex >= 0) listState.scrollToItem(targetIndex)
+        if (totalMessageCount > 0) {
+            val firstVisible = listState.firstVisibleItemIndex
+            // If the user is near the bottom, or if we just started sending media, snap to bottom
+            if (firstVisible <= 2 || uiState.sendingMediaUri != null) {
+                 listState.animateScrollToItem(0)
+            }
         }
-        previousMessageCount = messages.size
     }
 
     LaunchedEffect(isImeVisible) {
-        if (isImeVisible && messages.isNotEmpty()) {
+        if (isImeVisible && totalMessageCount > 0) {
             withFrameNanos { }
-            val targetIndex = listState.layoutInfo.totalItemsCount - 1
-            if (targetIndex >= 0) listState.scrollToItem(targetIndex)
+            val targetIndex = 0
+            listState.animateScrollToItem(targetIndex)
         }
-    }
-
-    LaunchedEffect(listState, messagesState) {
-        snapshotFlow { listState.firstVisibleItemIndex to messagesState.value.size }
-            .distinctUntilChanged()
-            .collect { (firstVisibleIndex, _) ->
-                if (firstVisibleIndex <= 5) viewModel.loadOlderMessages()
-            }
     }
 
     // Media Pickers
@@ -438,8 +453,12 @@ fun ChatScreen(
                 overlayOrigin = it.positionInRoot()
             }
         ) {
+            val unreadCount = uiState.initialUnreadCount
+            val hasUnreadDivider = unreadCount > 0
+            
             LazyColumn(
                 state = listState,
+                reverseLayout = true,
                 contentPadding = PaddingValues(
                     start = 12.dp,
                     end = 12.dp,
@@ -453,7 +472,76 @@ fun ChatScreen(
                     .padding(bottom = with(density) { composerHeightPx.toDp() })
                     .align(Alignment.Center)
             ) {
-                items(messages, key = { it.id }) { message ->
+                items(visiblePending, key = { it.id }) { message ->
+                    val isInSendFlight = sendFlight?.let { flight ->
+                        message.id == flight.messageId
+                    } == true
+                    M3MessageItem(
+                        modifier = Modifier,
+                        message = message,
+                        animateEmphasis = message.id in emphasisAnimationMessageIds,
+                        voiceOfUserEnabled = voiceOfUserEnabled,
+                        onEmphasisAnimationComplete = viewModel::completeEmphasisAnimation,
+                        isOutgoing = message.senderId == viewModel.myUserId,
+                        showSenderBadge = uiState.conversation?.type == "group",
+                        senderLabel = message.senderName ?: if (message.senderId == viewModel.myUserId) {
+                            viewModel.myDisplayName
+                        } else {
+                            "Friend"
+                        },
+                        senderAvatarPath = groupSenderAvatarPaths[message.senderId],
+                        onReply = { viewModel.setReplyingTo(message) },
+                        onDelete = { viewModel.hideMessage(message) },
+                        onPlayAudio = { viewModel.playAudio(message) },
+                        isPlayingAudio = uiState.playingAudioMessageId == message.id,
+                        audioProgress = if (uiState.playingAudioMessageId == message.id) uiState.audioProgress else 0f,
+                        onViewMedia = { viewModel.openMediaViewer(message) },
+                        hideOutgoingBubble = isInSendFlight,
+                        onBounds = { bounds ->
+                            val flight = sendFlight
+                            if (flight != null && message.id == flight.messageId
+                            ) {
+                                val target = bounds.relativeTo(overlayOrigin)
+                                val desiredBottom = flight.start.top - with(density) { 8.dp.toPx() }
+                                sendFlight = flight.copy(
+                                    end = target,
+                                    endMeasured = true,
+                                    scrollDistance = target.bottom - desiredBottom
+                                )
+                            }
+                        }
+                    )
+                }
+                
+                items(
+                    count = messages.itemCount,
+                    key = messages.itemKey { it.id },
+                    contentType = messages.itemContentType { "message" }
+                ) { index ->
+                    val message = messages[index]
+                    
+                    if (hasUnreadDivider && index == unreadCount) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                shape = PillShape
+                            ) {
+                                Text(
+                                    text = "$unreadCount Unread Messages",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    if (message != null) {
                     val isInSendFlight = sendFlight?.let { flight ->
                         message.id == flight.messageId
                     } == true
@@ -495,6 +583,7 @@ fun ChatScreen(
                             }
                         }
                     )
+                    }
                 }
                 item(key = "typing_indicator") {
                     AnimatedVisibility(
@@ -687,7 +776,7 @@ fun ChatScreen(
                                     IconButton(
                                         onClick = {
                                             if (uiState.inputText.isNotBlank()) {
-                                                val startMessageCount = messages.size
+                                                val startMessageCount = totalMessageCount
                                                 viewModel.sendTextMessage { provisionalMessage ->
                                                     composerBounds?.let { inputBounds ->
                                                     val text = provisionalMessage.plaintextBody
@@ -714,24 +803,18 @@ fun ChatScreen(
                                                     )
 
                                                     val layoutInfo = listState.layoutInfo
-                                                    val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()
-                                                    // The list viewport now ends at the measured composer edge;
-                                                    // only its own 8dp content inset remains below the final row.
-                                                    val bottomPaddingPx = with(density) { 8.dp.toPx() }
+                                                    val firstVisible = layoutInfo.visibleItemsInfo.firstOrNull()
                                                     val itemSpacingPx = with(density) { 8.dp.toPx() }
-                                                    val distanceToExistingBottom = if (lastVisible == null) {
+                                                    val distanceToExistingBottom = if (firstVisible == null) {
                                                         0f
                                                     } else {
                                                         val averageExtent = layoutInfo.visibleItemsInfo
                                                             .map { it.size + itemSpacingPx }
                                                             .average()
                                                             .toFloat()
-                                                        val itemsAfter =
-                                                            (layoutInfo.totalItemsCount - lastVisible.index - 1).coerceAtLeast(0)
-                                                        val visibleGap = layoutInfo.viewportEndOffset -
-                                                            (lastVisible.offset + lastVisible.size)
-                                                        (itemsAfter * averageExtent + bottomPaddingPx - visibleGap)
-                                                            .coerceAtLeast(0f)
+                                                        val itemsBefore = firstVisible.index
+                                                        val visibleGap = firstVisible.offset.toFloat()
+                                                        (itemsBefore * averageExtent + visibleGap).coerceAtLeast(0f)
                                                     }
 
                                                     sendFlight = SendFlight(
@@ -810,7 +893,9 @@ fun ChatScreen(
                                 val requestedScroll = scrollProgress * scrollDistance
                                 val remainingScroll = requestedScroll - appliedScroll
                                 if (kotlin.math.abs(remainingScroll) > 0.1f) {
-                                    appliedScroll += listState.scrollBy(remainingScroll)
+                                    // In reverseLayout=true, scrolling towards the newly inserted
+                                    // item 0 requires a negative scroll delta.
+                                    appliedScroll += abs(listState.scrollBy(-remainingScroll))
                                 }
                             }
                             .first { it >= 1f }
@@ -829,7 +914,7 @@ fun ChatScreen(
             // Wait for the real row to finish layout only after the visible
             // send motion, before swapping the overlay proxy for that row.
             val messageInserted = withTimeoutOrNull(800L) {
-                snapshotFlow { messagesState.value.size }
+                snapshotFlow { totalMessageCount }
                     .first { it > flight.startMessageCount }
                 true
             } == true
@@ -963,22 +1048,39 @@ fun M3MessageItem(
     onBounds: ((Rect) -> Unit)? = null
 ) {
     var showDeleteConfirmation by remember(message.id) { mutableStateOf(false) }
+    val haptic = LocalHapticFeedback.current
+    val offsetX = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val maxDrag = 150f
+
     val messageInteraction = Modifier
         .pointerInput(message.id) {
-            var horizontalDistance = 0f
-            var replied = false
-            val replyThreshold = 88.dp.toPx()
             detectHorizontalDragGestures(
-                onHorizontalDrag = { _, dragAmount ->
-                    horizontalDistance += dragAmount
-                    if (!replied && kotlin.math.abs(horizontalDistance) >= replyThreshold) {
-                        replied = true
-                        onReply()
+                onDragEnd = {
+                    scope.launch {
+                        if (offsetX.value > 100f) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onReply()
+                        }
+                        offsetX.animateTo(0f)
                     }
                 },
-                onDragEnd = { horizontalDistance = 0f; replied = false },
-                onDragCancel = { horizontalDistance = 0f; replied = false }
+                onDragCancel = {
+                    scope.launch { offsetX.animateTo(0f) }
+                },
+                onHorizontalDrag = { change, dragAmount ->
+                    if (dragAmount > 0 || offsetX.value > 0) {
+                        change.consume()
+                        scope.launch {
+                            val newOffset = (offsetX.value + dragAmount).coerceIn(0f, maxDrag)
+                            offsetX.snapTo(newOffset)
+                        }
+                    }
+                }
             )
+        }
+        .graphicsLayer {
+            translationX = offsetX.value
         }
         .combinedClickable(
             onClick = onReply,
@@ -1202,6 +1304,22 @@ private fun M3MessageContent(
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.matchParentSize()
                     )
+                } else if (!message.blurHash.isNullOrBlank()) {
+                    val blurHashBitmap = remember(message.blurHash) {
+                        try {
+                            BlurHash.decode(message.blurHash, 30, 20)?.asImageBitmap()
+                        } catch (e: Exception) { null }
+                    }
+                    if (blurHashBitmap != null) {
+                        Image(
+                            bitmap = blurHashBitmap,
+                            contentDescription = "Media loading",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.matchParentSize()
+                        )
+                    } else {
+                        ExpressiveContainedLoadingIndicator(Modifier.align(Alignment.Center), size = 24.dp)
+                    }
                 } else {
                     ExpressiveContainedLoadingIndicator(Modifier.align(Alignment.Center), size = 24.dp)
                 }

@@ -1,5 +1,6 @@
 package com.example.data.local
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -42,8 +43,10 @@ data class MessageEntity(
     val mediaIv: String? = null,
     val mediaDuration: Int = 0,
     val localDecryptedPath: String? = null,
-    @androidx.room.ColumnInfo(defaultValue = "'[]'") val textEmphasisJson: String = "[]",
+    val blurHash: String? = null,
+    @ColumnInfo(defaultValue = "'[]'") val textEmphasisJson: String = "[]",
     val status: String = "sent", // sending, sent, delivered, read, failed
+    val syncStatus: String = "synced", // pending, sending, failed, synced
     val timestamp: Long = System.currentTimeMillis()
 )
 

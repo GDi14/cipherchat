@@ -52,6 +52,14 @@ data class PrekeyDto(
 
 @JsonClass(generateAdapter = true)
 @Serializable
+data class DeviceTokenDto(
+    @Json(name = "device_id") @SerialName("device_id") val deviceId: String,
+    @Json(name = "user_id") @SerialName("user_id") val userId: String,
+    @Json(name = "fcm_token") @SerialName("fcm_token") val fcmToken: String
+)
+
+@JsonClass(generateAdapter = true)
+@Serializable
 data class FriendRequestDto(
     @Json(name = "id") val id: String? = null,
     @Json(name = "sender_id") @SerialName("sender_id") val senderId: String,
@@ -123,10 +131,4 @@ data class TypingStatusDto(
     @Json(name = "updated_at") @SerialName("updated_at") val updatedAt: String? = null
 )
 
-@JsonClass(generateAdapter = true)
-@Serializable
-data class DeviceTokenDto(
-    @Json(name = "device_id") @SerialName("device_id") val deviceId: String,
-    @Json(name = "user_id") @SerialName("user_id") val userId: String,
-    @Json(name = "fcm_token") @SerialName("fcm_token") val fcmToken: String
-)
+

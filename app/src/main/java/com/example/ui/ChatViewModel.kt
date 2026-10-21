@@ -5,6 +5,8 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
 import kotlinx.coroutines.Dispatchers
 import com.example.data.local.ConversationEntity
 import com.example.data.local.MessageEntity
@@ -15,7 +17,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -40,7 +42,8 @@ data class ChatUiState(
     val sendingMediaUri: Uri? = null,
     val sendingMediaType: String? = null,
     val errorMessage: String? = null,
-    val scrollToMessageId: String? = null
+    val scrollToMessageId: String? = null,
+    val initialUnreadCount: Int = 0
 )
 
 class ChatViewModel(
@@ -52,21 +55,12 @@ class ChatViewModel(
     val myUserId: String = chatRepository.myUserId
     val myDisplayName: String get() = chatRepository.getMyDisplayName()
 
-    private val persistedMessages: StateFlow<List<MessageEntity>> =
-        chatRepository.getMessagesForConversation(conversationId)
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-    private val _olderMessages = MutableStateFlow<List<MessageEntity>>(emptyList())
+    val messages: Flow<PagingData<MessageEntity>> =
+        chatRepository.getPagedMessagesForConversation(conversationId)
+            .cachedIn(viewModelScope)
+
     private val _pendingMessages = MutableStateFlow<List<MessageEntity>>(emptyList())
-    val messages: StateFlow<List<MessageEntity>> = combine(
-        persistedMessages, _olderMessages, _pendingMessages
-    ) { persisted, older, pending ->
-        val history = mergeByTimestamp(older, persisted).distinctBy { it.id }
-        val historyIds = history.mapTo(HashSet()) { it.id }
-        val pendingOnly = pending.filterNot { it.id in historyIds }
-            .sortedWith(compareBy<MessageEntity> { it.timestamp }.thenBy { it.id })
-        if (pendingOnly.isEmpty()) history else mergeByTimestamp(history, pendingOnly)
-    }.flowOn(Dispatchers.Default)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val pendingMessages: StateFlow<List<MessageEntity>> = _pendingMessages.asStateFlow()
 
     val typingUsers: StateFlow<Map<String, Set<String>>> = chatRepository.typingUsers
     val voiceOfUserEnabled: StateFlow<Boolean> = chatRepository.voiceOfUserEnabled
@@ -87,88 +81,21 @@ class ChatViewModel(
     private var hasMoreOlderMessages = true
 
     fun loadOlderMessages() {
-        if (isLoadingOlderMessages || !hasMoreOlderMessages) return
-        val oldest = messages.value.firstOrNull() ?: return
-        isLoadingOlderMessages = true
-        viewModelScope.launch {
-            try {
-                val page = chatRepository.getOlderMessages(
-                    convId = conversationId,
-                    beforeTimestamp = oldest.timestamp,
-                    beforeId = oldest.id,
-                    limit = MESSAGE_PAGE_SIZE
-                )
-                if (page.isEmpty()) {
-                    hasMoreOlderMessages = false
-                } else {
-                    _olderMessages.update { page + it }
-                    if (page.size < MESSAGE_PAGE_SIZE) hasMoreOlderMessages = false
-                }
-            } catch (error: Exception) {
-                _uiState.value = _uiState.value.copy(
-                    errorMessage = error.localizedMessage ?: "Couldn't load older messages"
-                )
-            } finally {
-                isLoadingOlderMessages = false
-            }
-        }
-    }
-
-    private fun mergeByTimestamp(
-        persisted: List<MessageEntity>,
-        pending: List<MessageEntity>
-    ): List<MessageEntity> {
-        val merged = ArrayList<MessageEntity>(persisted.size + pending.size)
-        var persistedIndex = 0
-        var pendingIndex = 0
-        while (persistedIndex < persisted.size && pendingIndex < pending.size) {
-            val stored = persisted[persistedIndex]
-            val provisional = pending[pendingIndex]
-            if (stored.timestamp < provisional.timestamp ||
-                (stored.timestamp == provisional.timestamp && stored.id <= provisional.id)
-            ) {
-                merged += persisted[persistedIndex++]
-            } else {
-                merged += pending[pendingIndex++]
-            }
-        }
-        while (persistedIndex < persisted.size) merged += persisted[persistedIndex++]
-        while (pendingIndex < pending.size) merged += pending[pendingIndex++]
-        return merged
-    }
-
-    private companion object {
-        const val MESSAGE_PAGE_SIZE = 100
+        // Handled automatically by Paging 3
     }
 
     init {
-        viewModelScope.launch {
-            var previousLatest: List<MessageEntity>? = null
-            persistedMessages.collect { stored ->
-                val previous = previousLatest
-                if (previous != null && stored.isNotEmpty()) {
-                    val currentIds = stored.mapTo(HashSet()) { it.id }
-                    val evictedFromLatestWindow = previous.filterNot { it.id in currentIds }
-                    if (evictedFromLatestWindow.isNotEmpty()) {
-                        _olderMessages.update { older ->
-                            mergeByTimestamp(older, evictedFromLatestWindow).distinctBy { it.id }
-                        }
-                    }
-                }
-                previousLatest = stored
-                if (stored.isNotEmpty()) {
-                    val storedIds = stored.mapTo(HashSet()) { it.id }
-                    _pendingMessages.update { pending -> pending.filterNot { it.id in storedIds } }
-                }
-            }
-        }
         loadConversation()
     }
 
     private fun loadConversation() {
         viewModelScope.launch {
             val conv = chatRepository.getConversation(conversationId)
-            _uiState.value = _uiState.value.copy(conversation = conv)
+            val unread = conv?.unreadCount ?: 0
+            _uiState.value = _uiState.value.copy(
+                conversation = conv,
+                initialUnreadCount = unread
+            )
         }
     }
 
@@ -184,7 +111,7 @@ class ChatViewModel(
 
     fun onConversationHidden() {
         chatRepository.closeActiveConversation(conversationId)
-        chatRepository.clearEmphasisAnimation(messages.value.map { it.id })
+        chatRepository.clearEmphasisAnimation(emptyList())
         typingTimerJob?.cancel()
         typingIsPublished = false
         viewModelScope.launch { chatRepository.setTyping(conversationId, false) }
@@ -248,6 +175,7 @@ class ChatViewModel(
         // Publish the row synchronously so Compose can lay it out before the
         // repository starts encryption or any network work.
         _pendingMessages.update { it + provisional }
+        
         _uiState.value = _uiState.value.copy(
             inputText = "",
             replyingTo = null,
@@ -264,9 +192,6 @@ class ChatViewModel(
                 timestamp = provisional.timestamp
             )
             result.onFailure { err ->
-                _pendingMessages.update { pending ->
-                    pending.map { if (it.id == provisional.id) it.copy(status = "failed") else it }
-                }
                 _uiState.value = _uiState.value.copy(
                     errorMessage = err.localizedMessage ?: "Failed to send encrypted message"
                 )

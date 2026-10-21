@@ -45,6 +45,13 @@
             </intent-filter>
         </activity>
         <service
+            android:name=".service.ChatFCMService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <service
             android:name=".data.remote.CipherFirebaseMessagingService"
             android:exported="false">
             <intent-filter>

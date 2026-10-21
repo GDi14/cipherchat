@@ -17,6 +17,7 @@ import com.example.data.local.SecurePreferencesManager
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import com.example.data.remote.DeviceTokenDto
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.coroutines.CancellationException
@@ -86,8 +87,12 @@ class CipherFirebaseMessagingService : FirebaseMessagingService() {
     override fun onNewToken(token: String) {
         val securePrefs = SecurePreferencesManager(applicationContext)
         val supabaseProvider = SupabaseClientProvider(applicationContext, securePrefs)
-        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launchSafely {
-            PushTokenRegistrar.register(applicationContext, securePrefs, supabaseProvider, token)
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                PushTokenRegistrar.register(applicationContext, securePrefs, supabaseProvider, token)
+            } catch (e: Exception) {
+                Log.e("ChatSync", "Error registering push token", e)
+            }
         }
     }
 

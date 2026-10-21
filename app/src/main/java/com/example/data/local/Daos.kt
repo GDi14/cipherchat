@@ -1,5 +1,6 @@
 package com.example.data.local
 
+import androidx.paging.PagingSource
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -36,6 +37,15 @@ interface ConversationDao {
 
 @Dao
 interface MessageDao {
+    @Query("SELECT messages.* FROM messages LEFT JOIN hidden_messages ON messages.id = hidden_messages.id WHERE messages.conversationId = :conversationId AND hidden_messages.id IS NULL ORDER BY messages.timestamp DESC, messages.id DESC")
+    fun getMessagesForConversationPaged(conversationId: String): PagingSource<Int, MessageEntity>
+
+    @Query("SELECT * FROM messages WHERE syncStatus = 'pending' ORDER BY timestamp ASC")
+    suspend fun getPendingMessages(): List<MessageEntity>
+
+    @Query("UPDATE messages SET syncStatus = :syncStatus WHERE id = :id")
+    suspend fun updateSyncStatus(id: String, syncStatus: String)
+
     @Query("SELECT messages.* FROM messages LEFT JOIN hidden_messages ON messages.id = hidden_messages.id WHERE messages.conversationId = :conversationId AND hidden_messages.id IS NULL ORDER BY messages.timestamp DESC, messages.id DESC LIMIT :limit")
     fun getLatestMessagesForConversation(conversationId: String, limit: Int): Flow<List<MessageEntity>>
 
