@@ -11,7 +11,6 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     entities = [
         ConversationEntity::class,
         MessageEntity::class,
-        HiddenMessageEntity::class,
         FriendRequestEntity::class,
         ProfileEntity::class,
         SignalSessionEntity::class,
@@ -19,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SignalSignedPreKeyEntity::class,
         SignalSenderKeyEntity::class
     ],
-    version = 5,
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -51,6 +50,22 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE messages ADD COLUMN syncStatus TEXT NOT NULL DEFAULT 'synced'")
             }
         }
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE messages ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0")
+                runCatching {
+                    db.execSQL("UPDATE messages SET is_hidden = 1 WHERE id IN (SELECT id FROM hidden_messages)")
+                    db.execSQL("DROP TABLE IF EXISTS hidden_messages")
+                }
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_messages_conv_hidden_time ON messages (conversationId, is_hidden, timestamp)")
+            }
+        }
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE conversations ADD COLUMN avatarPath TEXT")
+            }
+        }
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -61,7 +76,17 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "shieldchat.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                    .fallbackToDestructiveMigrationOnDowngrade(true)
+                    .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
+                    .addCallback(object : Callback() {
+                        override fun onOpen(db: SupportSQLiteDatabase) {
+                            super.onOpen(db)
+                            runCatching { db.query("PRAGMA synchronous = NORMAL").close() }
+                            runCatching { db.query("PRAGMA temp_store = MEMORY").close() }
+                            runCatching { db.query("PRAGMA mmap_size = 30000000").close() }
+                        }
+                    })
                     .build()
                 INSTANCE = instance
                 instance

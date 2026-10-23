@@ -1,0 +1,14 @@
+# Baseline Profiles for CypherChat
+# Pre-compiles critical paths for sub-300ms cold start and 120Hz smooth scrolling
+
+# Application Startup & MainActivity
+HSPLcom/example/CipherChatApp;->onCreate()V
+HSPLcom/example/MainActivity;->onCreate(Landroid/os/Bundle;)V
+HSPLcom/example/data/local/SecurePreferencesManager;->getInstance(Landroid/content/Context;)Lcom/example/data/local/SecurePreferencesManager;
+HSPLcom/example/data/local/AppDatabase;->getInstance(Landroid/content/Context;)Lcom/example/data/local/AppDatabase;
+HSPLcom/example/data/remote/SupabaseClientProvider;->getClient()Lio/github/jan/supabase/SupabaseClient;
+
+# Chat UI & List Scrolling
+HSPLcom/example/ui/ChatScreenKt;->ChatScreen(Lcom/example/ui/ChatViewModel;Lcom/example/repository/FriendRepository;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Landroidx/compose/ui/Modifier;)V
+HSPLcom/example/ui/model/MessageUiModelKt;->toUiModel(Lcom/example/data/local/MessageEntity;Ljava/lang/String;)Lcom/example/ui/model/MessageUiModel;
+HSPLcom/example/crypto/CryptoConcurrencyManager;->withLock(Ljava/lang/String;Lkotlin/jvm/functions/Function0;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;

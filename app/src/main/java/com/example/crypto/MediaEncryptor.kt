@@ -1,8 +1,12 @@
 package com.example.crypto
 
 import android.util.Base64
+import java.io.File
+import java.io.FileInputStream
+import java.io.InputStream
 import java.security.SecureRandom
 import javax.crypto.Cipher
+import javax.crypto.CipherInputStream
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
@@ -53,5 +57,15 @@ object MediaEncryptor {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.DECRYPT_MODE, secretKey, GCMParameterSpec(GCM_TAG_LENGTH_BITS, ivBytes))
         return cipher.doFinal(ciphertext)
+    }
+
+    fun decryptToStream(encryptedFile: File, keyBase64: String, ivBase64: String): InputStream {
+        val keyBytes = Base64.decode(keyBase64, Base64.NO_WRAP)
+        val ivBytes = Base64.decode(ivBase64, Base64.NO_WRAP)
+        val secretKey = SecretKeySpec(keyBytes, "AES")
+
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.DECRYPT_MODE, secretKey, GCMParameterSpec(GCM_TAG_LENGTH_BITS, ivBytes))
+        return CipherInputStream(FileInputStream(encryptedFile), cipher)
     }
 }

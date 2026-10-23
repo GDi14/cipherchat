@@ -30,15 +30,23 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.vanniktech.blurhash.BlurHash
 import java.io.File
 
 @Composable
 fun ImageMessage(
     localPath: String,
+    blurHash: String? = null,
     onOpen: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val bitmap = remember(localPath) { BitmapFactory.decodeFile(localPath)?.asImageBitmap() }
+    val blurHashBitmap = remember(blurHash) {
+        blurHash?.let {
+            BlurHash.decode(it, 32, 32)?.asImageBitmap()
+        }
+    }
+
     if (bitmap != null) {
         Image(
             bitmap = bitmap,
@@ -49,6 +57,16 @@ fun ImageMessage(
                 .heightIn(max = 280.dp)
                 .clip(MaterialTheme.shapes.large)
                 .clickable { onOpen(localPath) }
+        )
+    } else if (blurHashBitmap != null) {
+        Image(
+            bitmap = blurHashBitmap,
+            contentDescription = "Loading image placeholder",
+            contentScale = ContentScale.Crop,
+            modifier = modifier
+                .fillMaxWidth()
+                .heightIn(max = 280.dp)
+                .clip(MaterialTheme.shapes.large)
         )
     } else {
         Text("Image unavailable", style = MaterialTheme.typography.bodyMedium)

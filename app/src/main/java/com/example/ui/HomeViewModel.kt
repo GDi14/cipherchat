@@ -73,9 +73,14 @@ class HomeViewModel(
             if (supabaseProvider.isConfigured) {
                 authRepository.syncProfileToSupabase()
             }
-            sync()
+            backgroundSync()
             chatRepository.startRealtimeSync()
         }
+    }
+
+    private suspend fun backgroundSync() {
+        friendRepository.syncFriendRequests()
+        chatRepository.syncAllFromSupabase()
     }
 
     fun selectTab(index: Int) {

@@ -4,9 +4,11 @@ import android.os.Bundle
 import android.os.Build
 import androidx.activity.result.contract.ActivityResultContracts
 import android.Manifest
+import android.app.Application
 import android.content.Intent
 import android.graphics.Color as AndroidColor
 import androidx.activity.ComponentActivity
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -66,6 +68,11 @@ import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
 import kotlinx.coroutines.launch
 import android.util.Log
+import androidx.core.splashscreen.SplashScreen
+import com.example.ui.call.CallScreen
+import com.example.ui.call.CallViewModel
+import com.example.ui.call.CallViewModelFactory
+import java.util.UUID
 
 sealed interface AppScreen {
     val level: Int
@@ -76,6 +83,7 @@ sealed interface AppScreen {
     data object NewGroup : AppScreen { override val level: Int = 2 }
     data object AddFriends : AppScreen { override val level: Int = 2 }
     data object Notifications : AppScreen { override val level: Int = 2 }
+    data class Call(val callId: String, val remoteUserId: String, val isCaller: Boolean) : AppScreen { override val level: Int = 2 }
     data object AppSettings : AppScreen { override val level: Int = 3 }
     data object ProfileSettings : AppScreen { override val level: Int = 3 }
     data class UserProfile(val userId: String) : AppScreen { override val level: Int = 3 }
@@ -88,6 +96,7 @@ private val AppScreenSaver = Saver<AppScreen, String>(
             AppScreen.Onboarding -> "onboarding"
             AppScreen.Home -> "home"
             is AppScreen.Chat -> "chat:${screen.conversationId}"
+            is AppScreen.Call -> "call:${screen.callId}:${screen.remoteUserId}:${screen.isCaller}"
             AppScreen.NewGroup -> "new_group"
             AppScreen.AddFriends -> "friends"
             AppScreen.Notifications -> "notifications"
@@ -101,6 +110,14 @@ private val AppScreenSaver = Saver<AppScreen, String>(
             saved == "auth_loading" -> AppScreen.AuthLoading
             saved == "onboarding" -> AppScreen.Onboarding
             saved.startsWith("chat:") -> AppScreen.Chat(saved.removePrefix("chat:"))
+            saved.startsWith("call:") -> {
+                val parts = saved.removePrefix("call:").split(":")
+                if (parts.size == 3) {
+                    AppScreen.Call(parts[0], parts[1], parts[2].toBoolean())
+                } else {
+                    AppScreen.Home
+                }
+            }
             saved == "new_group" -> AppScreen.NewGroup
             saved == "friends" -> AppScreen.AddFriends
             saved == "notifications" -> AppScreen.Notifications
@@ -114,10 +131,13 @@ private val AppScreenSaver = Saver<AppScreen, String>(
 
 class MainActivity : ComponentActivity() {
     private var notificationConversationRequest by mutableStateOf<String?>(null)
+    private var incomingCallRequest by mutableStateOf<IncomingCallData?>(null)
     private var foregroundChatRepository: ChatRepository? = null
     private var foregroundSecurePrefs: SecurePreferencesManager? = null
     private var foregroundSupabaseProvider: SupabaseClientProvider? = null
     private var hasStartedOnce = false
+
+    data class IncomingCallData(val callId: String, val callerId: String)
 
     companion object {
         const val EXTRA_NOTIFICATION_CONVERSATION_ID = "notification_conversation_id"
@@ -170,24 +190,31 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val splashScreen = installSplashScreen()
+        var isAppReady = false
+        splashScreen.setKeepOnScreenCondition { !isAppReady }
         super.onCreate(savedInstanceState)
-        
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
 
         MessageNotificationChannel.ensureCreated(this)
         notificationConversationRequest = intent?.getStringExtra(EXTRA_NOTIFICATION_CONVERSATION_ID)
+        
+        if (intent?.getStringExtra("action") == "accept_call") {
+            incomingCallRequest = IncomingCallData(
+                callId = intent.getStringExtra("call_id") ?: "",
+                callerId = intent.getStringExtra("caller_id") ?: ""
+            )
+        }
+
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT)
         )
 
         // 1. Core singletons
-        val securePrefs = SecurePreferencesManager(applicationContext)
+        val securePrefs = SecurePreferencesManager.getInstance(applicationContext)
         val database = AppDatabase.getInstance(applicationContext)
         val supabaseProvider = SupabaseClientProvider(applicationContext, securePrefs)
-        val signalManager = SignalProtocolManager(applicationContext, securePrefs)
+        val signalManager = SignalProtocolManager.getInstance(applicationContext, securePrefs)
 
         val authRepository = AuthRepository(
             context = applicationContext,
@@ -211,12 +238,20 @@ class MainActivity : ComponentActivity() {
         foregroundSecurePrefs = securePrefs
         foregroundSupabaseProvider = supabaseProvider
         foregroundChatRepository = chatRepository
-        // Start the single foreground Realtime subscription even when the launch target is
-        // a notification conversation and HomeViewModel is not created first.
+        
         chatRepository.startRealtimeSync()
 
         setContent {
             val systemMotionEnabled = rememberSystemMotionEnabled()
+            
+            // Release splash screen and request permissions post-first-frame
+            LaunchedEffect(Unit) {
+                isAppReady = true
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }
+
             CompositionLocalProvider(LocalExpressiveMotionEnabled provides systemMotionEnabled) {
                 MyApplicationTheme(darkTheme = true) {
                     Surface(
@@ -225,13 +260,21 @@ class MainActivity : ComponentActivity() {
                     ) {
                     var currentScreen by rememberSaveable(stateSaver = AppScreenSaver) {
                         mutableStateOf<AppScreen>(
-                                notificationConversationRequest?.takeIf { authRepository.isRegistered() }
+                                incomingCallRequest?.let { req ->
+                                    AppScreen.Call(req.callId, req.callerId, false)
+                                } ?: notificationConversationRequest?.takeIf { authRepository.isRegistered() }
                                     ?.let { AppScreen.Chat(it) }
                                     ?: when {
                                         authRepository.isRegistered() -> AppScreen.Home
                                         else -> AppScreen.Onboarding
                                     }
                         )
+                    }
+                    LaunchedEffect(incomingCallRequest) {
+                        incomingCallRequest?.let { req ->
+                            currentScreen = AppScreen.Call(req.callId, req.callerId, false)
+                            incomingCallRequest = null
+                        }
                     }
                     LaunchedEffect(notificationConversationRequest) {
                         val conversationId = notificationConversationRequest ?: return@LaunchedEffect
@@ -253,12 +296,13 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
+                    // Optimistic Route Rendering: Render Home / Chat immediately from cached Room database.
+                    // Transition to Onboarding only if network explicitly returns unauthenticated or refresh failure.
                     val displayedScreen = if (authRepository.isRegistered()) {
                         when (authSessionStatus) {
-                            SessionStatus.Initializing -> AppScreen.AuthLoading
-                            is SessionStatus.Authenticated -> currentScreen
                             is SessionStatus.NotAuthenticated,
                             is SessionStatus.RefreshFailure -> AppScreen.Onboarding
+                            else -> currentScreen
                         }
                     } else {
                         currentScreen
@@ -334,6 +378,12 @@ class MainActivity : ComponentActivity() {
                                         profileReturnScreen = AppScreen.Home
                                         currentScreen = AppScreen.UserProfile(userId)
                                     },
+                                    onStartCall = { remoteUserId ->
+                                        // TODO: We need an Edge Function call here to notify the other user!
+                                        // But for now, we just go to the Call screen
+                                        val callId = UUID.randomUUID().toString()
+                                        currentScreen = AppScreen.Call(callId, remoteUserId, true)
+                                    }
                                 )
                             }
 
@@ -355,6 +405,10 @@ class MainActivity : ComponentActivity() {
                                     onOpenProfile = { userId ->
                                         profileReturnScreen = screen
                                         currentScreen = AppScreen.UserProfile(userId)
+                                    },
+                                    onStartCall = { remoteUserId ->
+                                        val callId = UUID.randomUUID().toString()
+                                        currentScreen = AppScreen.Call(callId, remoteUserId, true)
                                     }
                                 )
                             }
@@ -386,6 +440,10 @@ class MainActivity : ComponentActivity() {
                                     onOpenProfile = { userId ->
                                         profileReturnScreen = AppScreen.AddFriends
                                         currentScreen = AppScreen.UserProfile(userId)
+                                    },
+                                    onStartCall = { remoteUserId ->
+                                        val callId = UUID.randomUUID().toString()
+                                        currentScreen = AppScreen.Call(callId, remoteUserId, true)
                                     }) { friend ->
                                     val existing = conversations.firstOrNull { it.otherUserId == friend.id }
                                     if (existing != null) currentScreen = AppScreen.Chat(existing.id)
@@ -422,10 +480,27 @@ class MainActivity : ComponentActivity() {
                                     onOpenConversation = { currentScreen = AppScreen.Chat(it) }
                                 )
                             }
+                            is AppScreen.Call -> {
+                                val callViewModel: CallViewModel = viewModel(
+                                    key = screen.callId,
+                                    factory = CallViewModelFactory(
+                                        applicationContext as Application,
+                                        screen.callId,
+                                        screen.remoteUserId,
+                                        screen.isCaller
+                                    )
+                                )
+                                CallScreen(
+                                    viewModel = callViewModel,
+                                    onHangUp = {
+                                        currentScreen = AppScreen.Home
+                                    }
+                                )
+                            }
                         }
                         }
 
-                        if (screen is AppScreen.Chat) {
+                        if (screen is AppScreen.Chat || screen is AppScreen.Call) {
                             renderScreen()
                         } else {
                             ExpressivePagesTheme(content = renderScreen)

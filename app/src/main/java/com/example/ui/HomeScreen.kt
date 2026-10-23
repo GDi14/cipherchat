@@ -218,7 +218,7 @@ import kotlin.math.roundToInt
 fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, onNavigateToNewGroup: () -> Unit,
                onOpenAddFriends: () -> Unit, onOpenNotifications: () -> Unit,
                onOpenAppSettings: () -> Unit, onOpenProfileSettings: () -> Unit,
-               onOpenProfile: (String) -> Unit = {}) {
+               onOpenProfile: (String) -> Unit = {}, onStartCall: (String) -> Unit = {}) {
     val state by viewModel.uiState.collectAsState()
     val conversations by viewModel.conversations.collectAsState()
     val friends by viewModel.friends.collectAsState()
@@ -421,7 +421,7 @@ fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, o
                                 1 -> M3ChatsTab(groupConversations, onOpenConversation, onNavigateToNewGroup,
                                     state.isSyncing, viewModel::sync, scopeKey = "groups", searchQuery = pageSearchQuery,
                                     onSearchQueryChange = { pageSearchQuery = it }, showSearchField = false, onOpenProfile = onOpenProfile)
-                                2 -> M3CallsTab(searchQuery = pageSearchQuery)
+                                2 -> M3CallsTab(searchQuery = pageSearchQuery, onStartCall = onStartCall)
                                 else -> M3ChatsTab(directConversations, onOpenConversation, onNavigateToNewGroup,
                                     state.isSyncing, viewModel::sync, friends, onOpenAddFriends,
                                     state.favoriteFriendIds, scopeKey = "chats", searchQuery = pageSearchQuery,
@@ -706,9 +706,10 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
             }
             } else {
                 itemsIndexed(visible, key = { _, it -> it.id }) { index, conversation ->
-                    val conversationAvatarPath = conversation.otherUserId?.let { otherUserId ->
-                        friends.firstOrNull { it.id == otherUserId }?.avatarPath
-                    }
+                    val conversationAvatarPath = conversation.avatarPath
+                        ?: conversation.otherUserId?.let { otherUserId ->
+                            friends.firstOrNull { it.id == otherUserId }?.avatarPath
+                        }
                     val time = remember(conversation.lastMessageTimestamp) {
                         if (conversation.lastMessageTimestamp == 0L) "" else {
                             val date = Date(conversation.lastMessageTimestamp)
@@ -747,7 +748,8 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                                 }
                             },
                             supportingContent = {
-                                val preview = conversation.lastMessageText ?: "Messages are end-to-end encrypted"
+                                val rawPreview = conversation.lastMessageText ?: "Messages are end-to-end encrypted"
+                                val preview = rawPreview.removePrefix("[Call]").trim()
                                 val normalizedPreview = preview.removeSurrounding("[", "]").trim()
                                 val previewType = when {
                                     normalizedPreview.startsWith("voice note", ignoreCase = true) || normalizedPreview.startsWith("audio", ignoreCase = true) -> "audio"
@@ -810,6 +812,7 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
 @Composable
 fun M3FriendsTab(viewModel: HomeViewModel, friends: List<ProfileEntity>, pendingRequests: List<FriendRequestEntity>,
                  onBack: (() -> Unit)? = null, onOpenProfile: (String) -> Unit = {},
+                 onStartCall: (String) -> Unit = {},
                  onOpenConversationWithFriend: (ProfileEntity) -> Unit) {
     val state by viewModel.uiState.collectAsState()
     Scaffold(
@@ -917,6 +920,10 @@ fun M3FriendsTab(viewModel: HomeViewModel, friends: List<ProfileEntity>, pending
                                         else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
+                                FilledTonalIconButton(onClick = { onStartCall(friend.id) }) {
+                                    Icon(Icons.Default.Call, contentDescription = "Call ${friend.displayName}")
+                                }
+                                Spacer(Modifier.width(4.dp))
                                 FilledTonalIconButton(onClick = { onOpenConversationWithFriend(friend) }) {
                                     Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "Message ${friend.displayName}")
                                 }
@@ -940,7 +947,10 @@ fun M3FriendsTab(viewModel: HomeViewModel, friends: List<ProfileEntity>, pending
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun M3CallsTab(searchQuery: String = "") {
+fun M3CallsTab(
+    searchQuery: String = "",
+    onStartCall: (String) -> Unit = {}
+) {
     Surface(
         modifier = Modifier.fillMaxSize(),
         shape = ExpressiveTopSurfaceShape,
@@ -956,6 +966,15 @@ fun M3CallsTab(searchQuery: String = "") {
                 if (searchQuery.isBlank()) "No calls yet" else "No matching calls",
                 if (searchQuery.isBlank()) "Your recent calls will appear here." else "Try another search.",
                 icon = { Icon(Icons.Default.Call, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(40.dp)) })
+            
+            Spacer(modifier = Modifier.height(32.dp))
+            
+            Button(
+                onClick = { onStartCall("test_user_id") }, // TODO: Pass an actual user ID
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Start Test Call")
+            }
         }
     }
 }

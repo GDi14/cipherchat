@@ -23,7 +23,8 @@ data class MediaPayload(
     val key: String,
     val iv: String,
     val durationSeconds: Int = 0,
-    val fileName: String? = null
+    val fileName: String? = null,
+    val blurHash: String? = null
 )
 
 object MessagePayloadCodec {

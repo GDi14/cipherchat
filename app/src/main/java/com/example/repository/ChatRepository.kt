@@ -15,7 +15,6 @@ import com.example.crypto.VoiceOfUserEmphasis
 import com.example.data.local.AppDatabase
 import com.example.data.local.ConversationEntity
 import com.example.data.local.MessageEntity
-import com.example.data.local.HiddenMessageEntity
 import com.example.data.local.ProfileEntity
 import com.example.data.local.SecurePreferencesManager
 import com.example.data.remote.ConversationDto
@@ -38,6 +37,8 @@ import io.github.jan.supabase.realtime.realtime
 import io.github.jan.supabase.storage.storage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
@@ -45,7 +46,9 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.NetworkType
 import androidx.work.Constraints
+import com.example.crypto.CryptoConcurrencyManager
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -56,7 +59,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import org.whispersystems.libsignal.NoSessionException
 import org.whispersystems.libsignal.SignalProtocolAddress
+import org.whispersystems.libsignal.protocol.CiphertextMessage
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -156,7 +161,7 @@ class ChatRepository(
     }
 
     suspend fun hideMessageLocally(messageId: String) = withContext(Dispatchers.IO) {
-        database.messageDao().hideMessage(HiddenMessageEntity(messageId))
+        database.messageDao().hideMessage(messageId)
     }
 
     suspend fun getConversation(convId: String): ConversationEntity? = withContext(Dispatchers.IO) {
@@ -776,124 +781,135 @@ class ChatRepository(
     }
 
     /**
-     * Decrypts and saves an incoming message.
+     * Decrypts and saves an incoming message with striped mutex concurrency protection.
      */
     private suspend fun processIncomingMessage(dto: MessageDto) {
         val msgId = dto.id ?: return
         if (dto.senderId == myUserId) return // skip our own messages
 
-        // Retry messages with a prior decryption tombstone after keys/session state recover.
-        val existingMessage = database.messageDao().getMessageById(msgId)
-        if (existingMessage != null && existingMessage.status != "failed") return
+        val lockKey = if (dto.recipientId == myUserId) dto.senderId else dto.conversationId
 
-        // A delivery receipt means this device fetched the encrypted message. Record it before
-        // decryption so a local Signal/key problem does not leave the sender stuck at "sent".
-        if (supabaseProvider.isConfigured) {
-            runCatching {
-                supabaseProvider.getClient().postgrest["message_receipts"].upsert(
-                    MessageReceiptDto(messageId = msgId, userId = myUserId, status = "delivered")
-                )
-            }.onFailure { it.printStackTrace() }
-        }
+        CryptoConcurrencyManager.withLock(lockKey) {
+            // Check existence atomically within lock before ratchet decryption
+            if (database.messageDao().messageExists(msgId)) {
+                val existing = database.messageDao().getMessageById(msgId)
+                if (existing != null && existing.status != "failed") return@withLock
+            }
 
-        try {
-            // Decrypt libsignal payload
-            val conv = database.conversationDao().getConversationById(dto.conversationId)
-            val isDirect = conv?.type == "direct" || dto.recipientId == myUserId
+            // A delivery receipt means this device fetched the encrypted message.
+            if (supabaseProvider.isConfigured) {
+                runCatching {
+                    supabaseProvider.getClient().postgrest["message_receipts"].upsert(
+                        MessageReceiptDto(messageId = msgId, userId = myUserId, status = "delivered")
+                    )
+                }.onFailure { it.printStackTrace() }
+            }
 
-            val decryptedBytes = try {
-                if (isDirect) {
+            try {
+                // Decrypt libsignal payload
+                val conv = database.conversationDao().getConversationById(dto.conversationId)
+                val isDirect = conv?.type == "direct" || dto.recipientId == myUserId
+
+                val decryptedBytes = if (isDirect) {
                     signalManager.decryptDirectMessage(dto.senderId, dto.messageType, dto.encryptedBody)
                 } else {
                     signalManager.decryptGroupMessage(dto.conversationId, dto.senderId, dto.encryptedBody)
                 }
-            } catch (decryptionEx: Exception) {
-                // A failed decrypt does not prove that the ratchet is stale. Deleting the
-                // session here discards valid chain state and can make later messages unreadable.
-                throw decryptionEx
-            }
 
-            val payload = MessagePayloadCodec.decode(decryptedBytes)
+                val payload = MessagePayloadCodec.decode(decryptedBytes)
 
-            // Lookup sender name
-            val senderProfile = database.profileDao().getProfileById(dto.senderId)
-            val senderName = senderProfile?.displayName ?: "Friend"
-            val conversationIsVisible = activeConversationId == dto.conversationId
+                // Lookup sender name
+                val senderProfile = database.profileDao().getProfileById(dto.senderId)
+                val senderName = senderProfile?.displayName ?: "Friend"
+                val conversationIsVisible = activeConversationId == dto.conversationId
 
-            val displaySnippet = when {
-                payload.media != null -> when {
-                    payload.media.mimeType.startsWith("audio") -> "Voice Note (${payload.media.durationSeconds}s)" + payload.text.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
-                    payload.media.mimeType.startsWith("video") -> "Video" + payload.text.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
-                    else -> "Photo" + payload.text.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+                val displaySnippet = when {
+                    payload.media != null -> when {
+                        payload.media.mimeType.startsWith("audio") -> "Voice Note (${payload.media.durationSeconds}s)" + payload.text.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+                        payload.media.mimeType.startsWith("video") -> "Video" + payload.text.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+                        else -> "Photo" + payload.text.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+                    }
+                    payload.text.isNotBlank() -> payload.text
+                    else -> "[Encrypted Message]"
                 }
-                payload.text.isNotBlank() -> payload.text
-                else -> "[Encrypted Message]"
-            }
 
-            val entity = MessageEntity(
-                id = msgId,
-                conversationId = dto.conversationId,
-                senderId = dto.senderId,
-                senderName = senderName,
-                recipientId = dto.recipientId,
-                plaintextBody = payload.text,
-                messageType = dto.messageType,
-                replyToId = payload.replyToId,
-                replySnippet = payload.replySnippet,
-                textEmphasisJson = MessagePayloadCodec.encodeEmphasisRanges(payload.textEmphasisRanges),
-                mediaPath = payload.media?.path,
-                mediaType = payload.media?.mimeType,
-                mediaKey = payload.media?.key,
-                mediaIv = payload.media?.iv,
-                mediaDuration = payload.media?.durationSeconds ?: 0,
-                status = if (conversationIsVisible) "read" else "delivered",
-                timestamp = messageTimestamp(dto.createdAt)
-            )
+                val entity = MessageEntity(
+                    id = msgId,
+                    conversationId = dto.conversationId,
+                    senderId = dto.senderId,
+                    senderName = senderName,
+                    recipientId = dto.recipientId,
+                    plaintextBody = payload.text,
+                    messageType = dto.messageType,
+                    replyToId = payload.replyToId,
+                    replySnippet = payload.replySnippet,
+                    textEmphasisJson = MessagePayloadCodec.encodeEmphasisRanges(payload.textEmphasisRanges),
+                    mediaPath = payload.media?.path,
+                    mediaType = payload.media?.mimeType,
+                    mediaKey = payload.media?.key,
+                    mediaIv = payload.media?.iv,
+                    mediaDuration = payload.media?.durationSeconds ?: 0,
+                    status = if (conversationIsVisible) "read" else "delivered",
+                    timestamp = messageTimestamp(dto.createdAt)
+                )
 
-            database.messageDao().insertOrUpdate(entity)
-            if (conversationIsVisible && _voiceOfUserEnabled.value && payload.textEmphasisRanges.isNotEmpty()) {
-                _emphasisAnimationMessageIds.value += msgId
-            }
-            database.conversationDao().updateLastMessage(dto.conversationId, displaySnippet, entity.timestamp)
-            if (!conversationIsVisible) {
-                database.conversationDao().incrementUnreadCount(dto.conversationId)
-            } else {
-                database.conversationDao().clearUnreadCount(dto.conversationId)
-                database.messageDao().markAllIncomingAsRead(dto.conversationId, myUserId, "read")
-            }
-
-            // Auto download voice notes/media if needed
-            if (payload.media != null) {
-                scope.launch {
-                    downloadAndDecryptMedia(entity)
+                database.messageDao().insertOrUpdate(entity)
+                if (conversationIsVisible && _voiceOfUserEnabled.value && payload.textEmphasisRanges.isNotEmpty()) {
+                    _emphasisAnimationMessageIds.value += msgId
                 }
-            }
+                database.conversationDao().updateLastMessage(dto.conversationId, displaySnippet, entity.timestamp)
+                if (!conversationIsVisible) {
+                    database.conversationDao().incrementUnreadCount(dto.conversationId)
+                } else {
+                    database.conversationDao().clearUnreadCount(dto.conversationId)
+                    database.messageDao().markAllIncomingAsRead(dto.conversationId, myUserId, "read")
+                }
 
-            // A message arriving while its chat is visible is immediately read.
-            if (conversationIsVisible && supabaseProvider.isConfigured) {
-                runCatching {
-                    supabaseProvider.getClient().postgrest["message_receipts"].upsert(
-                        MessageReceiptDto(messageId = msgId, userId = myUserId, status = "read")
-                    )
-                }.onFailure { it.printStackTrace() }
+                // Auto download voice notes/media if needed
+                if (payload.media != null) {
+                    scope.launch {
+                        downloadAndDecryptMedia(entity)
+                    }
+                }
+
+                // A message arriving while its chat is visible is immediately read.
+                if (conversationIsVisible && supabaseProvider.isConfigured) {
+                    runCatching {
+                        supabaseProvider.getClient().postgrest["message_receipts"].upsert(
+                            MessageReceiptDto(messageId = msgId, userId = myUserId, status = "read")
+                        )
+                    }.onFailure { it.printStackTrace() }
+                }
+            } catch (e: Exception) {
+                Log.e(
+                    "SignalDecrypt",
+                    "Could not decrypt incoming message type=${dto.messageType}; error=${e.javaClass.simpleName}: ${e.localizedMessage}",
+                    e
+                )
+                if (e is NoSessionException) {
+                    runCatching {
+                        val address = SignalProtocolAddress(dto.senderId, 1)
+                        signalManager.store.deleteSession(address)
+                    }
+                }
+
+                // Never overwrite a message that was already successfully decrypted
+                val existingValid = database.messageDao().getMessageById(msgId)
+                if (existingValid != null && existingValid.status != "failed") {
+                    return@withLock
+                }
+
+                val entity = MessageEntity(
+                    id = msgId,
+                    conversationId = dto.conversationId,
+                    senderId = dto.senderId,
+                    plaintextBody = "[Unable to decrypt this message. Your security keys may have changed. Ask the sender to resend.]",
+                    messageType = dto.messageType,
+                    status = "failed",
+                    timestamp = messageTimestamp(dto.createdAt)
+                )
+                database.messageDao().insertOrUpdate(entity)
             }
-        } catch (e: Exception) {
-            Log.e(
-                "SignalDecrypt",
-                "Could not decrypt incoming message type=${dto.messageType}; error=${e.javaClass.simpleName}: ${e.localizedMessage}",
-                e
-            )
-            // Keep a retryable tombstone, but do not claim every failure is a ratchet mismatch.
-            val entity = MessageEntity(
-                id = msgId,
-                conversationId = dto.conversationId,
-                senderId = dto.senderId,
-                plaintextBody = "[Unable to decrypt this message. Your security keys may have changed. Ask the sender to resend.]",
-                messageType = dto.messageType,
-                status = "failed",
-                timestamp = messageTimestamp(dto.createdAt)
-            )
-            database.messageDao().insertOrUpdate(entity)
         }
     }
 
@@ -957,93 +973,107 @@ class ChatRepository(
                 }
             }.decodeList<ConversationMemberDto>()
 
-            for (m in memberships) {
-                val convs = client.postgrest["conversations"].select {
-                    filter {
-                        eq("id", m.conversationId)
-                    }
-                }.decodeList<ConversationDto>()
-
-                val convDto = convs.firstOrNull() ?: continue
-                val existing = database.conversationDao().getConversationById(convDto.id ?: "")
-
-                if (existing == null) {
-                    var title = convDto.title
-                    var otherUserId: String? = null
-                    var otherUserTag: String? = null
-
-                    if (convDto.type == "direct") {
-                        // Find other member
-                        val otherMembers = client.postgrest["conversation_members"].select {
-                            filter {
-                                eq("conversation_id", convDto.id ?: "")
-                                neq("user_id", myUserId)
-                            }
-                        }.decodeList<ConversationMemberDto>()
-                        val otherMember = otherMembers.firstOrNull()
-                        if (otherMember != null) {
-                            otherUserId = otherMember.userId
-                            val otherProfiles = client.postgrest["profiles"].select {
-                                filter {
-                                    eq("id", otherMember.userId)
-                                }
-                            }.decodeList<com.example.data.remote.ProfileDto>()
-                            val p = otherProfiles.firstOrNull()
-                            title = p?.displayName ?: "Friend"
-                            otherUserTag = p?.tag
-                        }
-                    }
-
-                    database.conversationDao().insertOrUpdate(
-                        ConversationEntity(
-                            id = convDto.id ?: UUID.randomUUID().toString(),
-                            type = convDto.type,
-                            title = title,
-                            otherUserId = otherUserId,
-                            otherUserTag = otherUserTag,
-                            lastMessageText = "Conversation ready",
-                            lastMessageTimestamp = System.currentTimeMillis(),
-                            unreadCount = 0
-                        )
-                    )
-                }
-
-                // Fetch group sender keys if group
-                if (convDto.type == "group") {
-                    val senderKeys = client.postgrest["group_sender_keys"].select {
-                        filter {
-                            eq("conversation_id", convDto.id ?: "")
-                            eq("recipient_id", myUserId)
-                        }
-                    }.decodeList<GroupSenderKeyDto>()
-
-                    for (sk in senderKeys) {
+            coroutineScope {
+                memberships.map { m ->
+                    async {
                         try {
-                            // Decrypt distribution message using 1:1 direct session
-                            val decryptedDistBytes = signalManager.decryptDirectMessage(
-                                sk.senderId,
-                                org.whispersystems.libsignal.protocol.CiphertextMessage.WHISPER_TYPE,
-                                sk.encryptedDistributionMessage
-                            )
-                            val distB64 = String(decryptedDistBytes, Charsets.UTF_8)
-                            signalManager.processGroupDistributionMessage(convDto.id ?: "", sk.senderId, distB64)
-                        } catch (_: Exception) {}
+                            val convs = client.postgrest["conversations"].select {
+                                filter {
+                                    eq("id", m.conversationId)
+                                }
+                            }.decodeList<ConversationDto>()
+
+                            val convDto = convs.firstOrNull() ?: return@async
+                            val existing = database.conversationDao().getConversationById(convDto.id ?: "")
+
+                            var title = convDto.title
+                            var otherUserId: String? = existing?.otherUserId
+                            var otherUserTag: String? = existing?.otherUserTag
+                            var avatarPath: String? = existing?.avatarPath
+
+                            if (convDto.type == "direct") {
+                                val otherMembers = client.postgrest["conversation_members"].select {
+                                    filter {
+                                        eq("conversation_id", convDto.id ?: "")
+                                        neq("user_id", myUserId)
+                                    }
+                                }.decodeList<ConversationMemberDto>()
+                                val otherMember = otherMembers.firstOrNull()
+                                if (otherMember != null) {
+                                    otherUserId = otherMember.userId
+                                    val otherProfiles = client.postgrest["profiles"].select {
+                                        filter {
+                                            eq("id", otherMember.userId)
+                                        }
+                                    }.decodeList<ProfileDto>()
+                                    val p = otherProfiles.firstOrNull()
+                                    title = p?.displayName ?: "Friend"
+                                    otherUserTag = p?.tag
+                                    avatarPath = p?.avatarPath
+                                }
+                            }
+
+                            if (existing == null) {
+                                database.conversationDao().insertOrUpdate(
+                                    ConversationEntity(
+                                        id = convDto.id ?: UUID.randomUUID().toString(),
+                                        type = convDto.type,
+                                        title = title,
+                                        otherUserId = otherUserId,
+                                        otherUserTag = otherUserTag,
+                                        avatarPath = avatarPath,
+                                        lastMessageText = "Conversation ready",
+                                        lastMessageTimestamp = System.currentTimeMillis(),
+                                        unreadCount = 0
+                                    )
+                                )
+                            } else if (avatarPath != null && existing.avatarPath != avatarPath) {
+                                database.conversationDao().insertOrUpdate(
+                                    existing.copy(
+                                        avatarPath = avatarPath,
+                                        title = title ?: existing.title,
+                                        otherUserTag = otherUserTag ?: existing.otherUserTag
+                                    )
+                                )
+                            }
+
+                            if (convDto.type == "group") {
+                                val senderKeys = client.postgrest["group_sender_keys"].select {
+                                    filter {
+                                        eq("conversation_id", convDto.id ?: "")
+                                        eq("recipient_id", myUserId)
+                                    }
+                                }.decodeList<GroupSenderKeyDto>()
+
+                                for (sk in senderKeys) {
+                                    runCatching {
+                                        val decryptedDistBytes = signalManager.decryptDirectMessage(
+                                            sk.senderId,
+                                            CiphertextMessage.WHISPER_TYPE,
+                                            sk.encryptedDistributionMessage
+                                        )
+                                        val distB64 = String(decryptedDistBytes, Charsets.UTF_8)
+                                        signalManager.processGroupDistributionMessage(convDto.id ?: "", sk.senderId, distB64)
+                                    }
+                                }
+                            }
+
+                            val messages = client.postgrest["messages"].select {
+                                filter {
+                                    eq("conversation_id", convDto.id ?: "")
+                                }
+                            }.decodeList<MessageDto>()
+
+                            for (msg in messages) {
+                                processIncomingMessage(msg)
+                            }
+
+                            reconcileOutgoingReceipts(client, messages)
+                        } catch (e: Exception) {
+                            Log.w("ChatSync", "Error syncing conversation ${m.conversationId}", e)
+                        }
                     }
-                }
-
-                // Fetch messages for conversation
-                val messages = client.postgrest["messages"].select {
-                    filter {
-                        eq("conversation_id", convDto.id ?: "")
-                    }
-                }.decodeList<MessageDto>()
-
-                for (msg in messages) {
-                    processIncomingMessage(msg)
-                }
-
-                // Reconcile receipts even if the sender missed Realtime events while disconnected.
-                reconcileOutgoingReceipts(client, messages)
+                }.forEach { it.await() }
             }
 
             Result.success(Unit)

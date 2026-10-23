@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.Person
 import com.example.MainActivity
 import com.example.crypto.MessagePayloadCodec
 import com.example.crypto.SignalProtocolManager
@@ -18,6 +19,7 @@ import com.example.data.local.SecurePreferencesManager
 import com.example.data.remote.DeviceTokenDto
 import com.example.data.remote.MessageReceiptDto
 import com.example.data.remote.SupabaseClientProvider
+import com.example.ui.call.IncomingCallActivity
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import io.github.jan.supabase.postgrest.postgrest
@@ -67,6 +69,12 @@ class ChatFCMService : FirebaseMessagingService() {
 
         val data = remoteMessage.data
         if (data.isEmpty()) return
+        
+        val type = data["type"]
+        if (type == "incoming_call") {
+            handleIncomingCallPush(data)
+            return
+        }
 
         val messageId = data["message_id"] ?: return
         val conversationId = data["conversation_id"] ?: return
@@ -193,6 +201,84 @@ class ChatFCMService : FirebaseMessagingService() {
             .build()
 
         notificationManager.notify(conversationId.hashCode(), notification)
+    }
+
+    private fun handleIncomingCallPush(data: Map<String, String>) {
+        val callerId = data["caller_id"] ?: return
+        val callerName = data["caller_name"] ?: "Unknown Caller"
+        val callId = data["call_id"] ?: return
+
+        val context = applicationContext
+        val channelId = "incoming_calls"
+        val notificationManager = context.getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(channelId, "Incoming Calls", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Notifications for incoming audio and video calls"
+            }
+            notificationManager.createNotificationChannel(channel)
+        }
+
+        val fullScreenIntent = Intent(context, IncomingCallActivity::class.java).apply {
+            putExtra("caller_name", callerName)
+            putExtra("call_id", callId)
+            putExtra("caller_id", callerId)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        val fullScreenPendingIntent = PendingIntent.getActivity(
+            context, callId.hashCode(), fullScreenIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val acceptIntent = Intent(context, IncomingCallActivity::class.java).apply {
+            action = "ACTION_ACCEPT"
+            putExtra("caller_name", callerName)
+            putExtra("call_id", callId)
+            putExtra("caller_id", callerId)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        val acceptPendingIntent = PendingIntent.getActivity(
+            context, (callId + "_accept").hashCode(), acceptIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val declineIntent = Intent(context, IncomingCallActivity::class.java).apply {
+            action = "ACTION_DECLINE"
+            putExtra("call_id", callId)
+            putExtra("caller_id", callerId)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        val declinePendingIntent = PendingIntent.getActivity(
+            context, (callId + "_decline").hashCode(), declineIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val callerPerson = Person.Builder()
+            .setName(callerName)
+            .setImportant(true)
+            .build()
+
+        val notificationBuilder = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(R.drawable.ic_dialog_info)
+            .setContentTitle("Incoming Video Call")
+            .setContentText("$callerName is calling...")
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setFullScreenIntent(fullScreenPendingIntent, true)
+            .setOngoing(true)
+            .setAutoCancel(true)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            notificationBuilder.setStyle(
+                NotificationCompat.CallStyle.forIncomingCall(callerPerson, declinePendingIntent, acceptPendingIntent)
+            )
+        } else {
+            notificationBuilder
+                .addAction(R.drawable.ic_menu_call, "Decline", declinePendingIntent)
+                .addAction(R.drawable.ic_menu_call, "Accept", acceptPendingIntent)
+        }
+
+        notificationManager.notify("call_$callId", 0, notificationBuilder.build())
     }
 
     override fun onDestroy() {

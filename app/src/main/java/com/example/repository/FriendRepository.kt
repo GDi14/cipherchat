@@ -299,6 +299,7 @@ class FriendRepository(
                         title = request.senderName,
                         otherUserId = friendId,
                         otherUserTag = request.senderTag,
+                        avatarPath = request.avatarPath,
                         lastMessageText = "Friend request accepted. Direct messaging unlocked!",
                         lastMessageTimestamp = System.currentTimeMillis(),
                         unreadCount = 0
@@ -387,6 +388,11 @@ class FriendRepository(
                             isFriend = true
                         )
                     )
+                    database.conversationDao().getDirectConversation(req.senderId)?.let { conv ->
+                        if (conv.avatarPath != sender?.avatarPath) {
+                            database.conversationDao().insertOrUpdate(conv.copy(avatarPath = sender?.avatarPath))
+                        }
+                    }
                 }
             }
 
@@ -432,6 +438,11 @@ class FriendRepository(
                             isFriend = true
                         )
                     )
+                    database.conversationDao().getDirectConversation(req.receiverId)?.let { conv ->
+                        if (conv.avatarPath != receiver?.avatarPath) {
+                            database.conversationDao().insertOrUpdate(conv.copy(avatarPath = receiver?.avatarPath))
+                        }
+                    }
                 }
             }
 

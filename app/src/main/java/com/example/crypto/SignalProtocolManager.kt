@@ -181,6 +181,16 @@ class SignalProtocolManager(
         return cachedIdentity == publishedIdentity
     }
 
+    /** Pre-warms in-memory Signal session caches for rapid message processing. */
+    fun prewarmSessionsForRecipients(recipientUserIds: List<String>) {
+        for (recipientId in recipientUserIds) {
+            runCatching {
+                val address = SignalProtocolAddress(recipientId, 1)
+                store.loadSession(address)
+            }
+        }
+    }
+
     fun hasLocalPreKey(preKeyId: Int): Boolean = store.containsPreKey(preKeyId)
 
     /** A stable, pairwise device-key fingerprint suitable for out-of-band comparison. */
@@ -290,5 +300,14 @@ class SignalProtocolManager(
     companion object {
         private const val PREF_IDENTITY_KEY_PAIR = "pref_signal_local_identity_key_pair"
         private const val PREF_REGISTRATION_ID = "pref_signal_local_registration_id"
+
+        @Volatile
+        private var INSTANCE: SignalProtocolManager? = null
+
+        fun getInstance(context: Context, securePrefs: SecurePreferencesManager): SignalProtocolManager {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: SignalProtocolManager(context.applicationContext, securePrefs).also { INSTANCE = it }
+            }
+        }
     }
 }

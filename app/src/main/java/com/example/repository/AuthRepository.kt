@@ -425,6 +425,13 @@ class AuthRepository(
                         oneTimePrekeys = bundle.oneTimePrekeys
                     )
                 )
+            } else if (existingKeys.oneTimePrekeys.size < 5) {
+                val freshBundle = signalManager.generatePublicPrekeyBundle()
+                client.postgrest["prekeys"].upsert(
+                    existingKeys.copy(
+                        oneTimePrekeys = (existingKeys.oneTimePrekeys + freshBundle.oneTimePrekeys).distinctBy { it.id }
+                    )
+                )
             }
 
             Result.success(Unit)

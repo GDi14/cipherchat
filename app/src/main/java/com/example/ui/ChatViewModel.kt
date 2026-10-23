@@ -7,6 +7,9 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
+import androidx.paging.map
+import com.example.ui.model.MessageUiModel
+import com.example.ui.model.toUiModel
 import kotlinx.coroutines.Dispatchers
 import com.example.data.local.ConversationEntity
 import com.example.data.local.MessageEntity
@@ -19,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map as flowMap
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,8 +59,14 @@ class ChatViewModel(
     val myUserId: String = chatRepository.myUserId
     val myDisplayName: String get() = chatRepository.getMyDisplayName()
 
-    val messages: Flow<PagingData<MessageEntity>> =
+
+
+    val messages: Flow<PagingData<MessageUiModel>> =
         chatRepository.getPagedMessagesForConversation(conversationId)
+            .flowMap { pagingData ->
+                pagingData.map { entity -> entity.toUiModel(myUserId) }
+            }
+            .flowOn(Dispatchers.Default)
             .cachedIn(viewModelScope)
 
     private val _pendingMessages = MutableStateFlow<List<MessageEntity>>(emptyList())

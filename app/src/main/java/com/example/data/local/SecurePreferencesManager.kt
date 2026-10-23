@@ -178,5 +178,14 @@ class SecurePreferencesManager(context: Context) {
         private const val KEY_PROFILE_BIO = "pref_profile_bio"
         private const val KEY_SUPABASE_URL = "pref_supabase_url"
         private const val KEY_SUPABASE_ANON_KEY = "pref_supabase_anon_key"
+
+        @Volatile
+        private var INSTANCE: SecurePreferencesManager? = null
+
+        fun getInstance(context: Context): SecurePreferencesManager {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: SecurePreferencesManager(context.applicationContext).also { INSTANCE = it }
+            }
+        }
     }
 }

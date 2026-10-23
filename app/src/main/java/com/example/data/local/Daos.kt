@@ -37,7 +37,7 @@ interface ConversationDao {
 
 @Dao
 interface MessageDao {
-    @Query("SELECT messages.* FROM messages LEFT JOIN hidden_messages ON messages.id = hidden_messages.id WHERE messages.conversationId = :conversationId AND hidden_messages.id IS NULL ORDER BY messages.timestamp DESC, messages.id DESC")
+    @Query("SELECT * FROM messages WHERE conversationId = :conversationId AND is_hidden = 0 ORDER BY timestamp DESC, id DESC")
     fun getMessagesForConversationPaged(conversationId: String): PagingSource<Int, MessageEntity>
 
     @Query("SELECT * FROM messages WHERE syncStatus = 'pending' ORDER BY timestamp ASC")
@@ -46,14 +46,17 @@ interface MessageDao {
     @Query("UPDATE messages SET syncStatus = :syncStatus WHERE id = :id")
     suspend fun updateSyncStatus(id: String, syncStatus: String)
 
-    @Query("SELECT messages.* FROM messages LEFT JOIN hidden_messages ON messages.id = hidden_messages.id WHERE messages.conversationId = :conversationId AND hidden_messages.id IS NULL ORDER BY messages.timestamp DESC, messages.id DESC LIMIT :limit")
+    @Query("SELECT * FROM messages WHERE conversationId = :conversationId AND is_hidden = 0 ORDER BY timestamp DESC, id DESC LIMIT :limit")
     fun getLatestMessagesForConversation(conversationId: String, limit: Int): Flow<List<MessageEntity>>
 
-    @Query("SELECT messages.* FROM messages LEFT JOIN hidden_messages ON messages.id = hidden_messages.id WHERE messages.conversationId = :conversationId AND hidden_messages.id IS NULL AND (messages.timestamp < :beforeTimestamp OR (messages.timestamp = :beforeTimestamp AND messages.id < :beforeId)) ORDER BY messages.timestamp DESC, messages.id DESC LIMIT :limit")
+    @Query("SELECT * FROM messages WHERE conversationId = :conversationId AND is_hidden = 0 AND (timestamp < :beforeTimestamp OR (timestamp = :beforeTimestamp AND id < :beforeId)) ORDER BY timestamp DESC, id DESC LIMIT :limit")
     suspend fun getOlderMessages(conversationId: String, beforeTimestamp: Long, beforeId: String, limit: Int): List<MessageEntity>
 
     @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")
     suspend fun getMessageById(id: String): MessageEntity?
+
+    @Query("SELECT EXISTS(SELECT 1 FROM messages WHERE id = :id)")
+    suspend fun messageExists(id: String): Boolean
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdate(message: MessageEntity)
@@ -99,8 +102,8 @@ interface MessageDao {
     @Query("DELETE FROM messages WHERE id = :id")
     suspend fun deleteMessage(id: String)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun hideMessage(message: HiddenMessageEntity)
+    @Query("UPDATE messages SET is_hidden = 1 WHERE id = :id")
+    suspend fun hideMessage(id: String)
 }
 
 @Dao

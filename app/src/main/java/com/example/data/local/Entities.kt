@@ -15,6 +15,7 @@ data class ConversationEntity(
     val title: String?,
     val otherUserId: String? = null,
     val otherUserTag: String? = null,
+    val avatarPath: String? = null,
     val lastMessageText: String? = null,
     val lastMessageTimestamp: Long = 0L,
     val unreadCount: Int = 0
@@ -24,6 +25,7 @@ data class ConversationEntity(
     tableName = "messages",
     indices = [
         Index(value = ["conversationId", "timestamp"]),
+        Index(value = ["conversationId", "is_hidden", "timestamp"], name = "index_messages_conv_hidden_time"),
         Index(value = ["replyToId"])
     ]
 )
@@ -45,16 +47,10 @@ data class MessageEntity(
     val localDecryptedPath: String? = null,
     val blurHash: String? = null,
     @ColumnInfo(defaultValue = "'[]'") val textEmphasisJson: String = "[]",
+    @ColumnInfo(name = "is_hidden", defaultValue = "0") val isHidden: Boolean = false,
     val status: String = "sent", // sending, sent, delivered, read, failed
     val syncStatus: String = "synced", // pending, sending, failed, synced
     val timestamp: Long = System.currentTimeMillis()
-)
-
-/** Device-local tombstone so a hidden message stays hidden after remote sync. */
-@Entity(tableName = "hidden_messages")
-data class HiddenMessageEntity(
-    @PrimaryKey val id: String,
-    val hiddenAt: Long = System.currentTimeMillis()
 )
 
 @Entity(

@@ -62,8 +62,11 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.AlertDialog
@@ -139,6 +142,8 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import androidx.paging.compose.itemContentType
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.testTag
@@ -210,7 +215,8 @@ fun ChatScreen(
     viewModel: ChatViewModel,
     friendRepository: FriendRepository,
     onBack: () -> Unit,
-    onOpenProfile: (String) -> Unit = {}
+    onOpenProfile: (String) -> Unit = {},
+    onStartCall: (String) -> Unit = {}
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(viewModel, lifecycleOwner) {
@@ -272,7 +278,18 @@ fun ChatScreen(
     val voiceOfUserEnabled by viewModel.voiceOfUserEnabled.collectAsState()
     val emphasisAnimationMessageIds by viewModel.emphasisAnimationMessageIds.collectAsState()
     val isSomeoneTyping = typingUsersMap[viewModel.conversationId]?.isNotEmpty() == true
-    val listState = rememberLazyListState()
+    val initialScrollIndex = remember(viewModel.conversationId, uiState.initialUnreadCount) {
+        if (uiState.initialUnreadCount > 0) uiState.initialUnreadCount else 0
+    }
+    val listState = rememberSaveable(
+        viewModel.conversationId,
+        saver = LazyListState.Saver
+    ) {
+        LazyListState(
+            firstVisibleItemIndex = initialScrollIndex,
+            firstVisibleItemScrollOffset = 0
+        )
+    }
     val snackbarHostState = remember { SnackbarHostState() }
     val screenScope = rememberCoroutineScope()
 
@@ -309,11 +326,7 @@ fun ChatScreen(
 
         if (!initialMessagePositioned) {
             if (totalMessageCount > 0) {
-                if (uiState.initialUnreadCount > 0) {
-                    // Scroll to the unread divider which is placed exactly at initialUnreadCount
-                    val scrollTarget = uiState.initialUnreadCount.coerceAtMost(totalMessageCount - 1)
-                    listState.scrollToItem(scrollTarget)
-                } else {
+                if (uiState.initialUnreadCount <= 0) {
                     listState.scrollToItem(0)
                 }
                 initialMessagePositioned = true
@@ -323,9 +336,9 @@ fun ChatScreen(
 
         if (totalMessageCount > 0) {
             val firstVisible = listState.firstVisibleItemIndex
-            // If the user is near the bottom, or if we just started sending media, snap to bottom
-            if (firstVisible <= 2 || uiState.sendingMediaUri != null) {
-                 listState.animateScrollToItem(0)
+            // When no unread messages are available (initialUnreadCount <= 0), or if near the bottom / sending media: stick to the bottom
+            if (uiState.initialUnreadCount <= 0 || firstVisible <= 3 || uiState.sendingMediaUri != null) {
+                listState.animateScrollToItem(0)
             }
         }
     }
@@ -417,6 +430,29 @@ fun ChatScreen(
                     }
                 },
                 actions = {
+                    val otherUserId = uiState.conversation?.takeIf { it.type == "direct" }?.otherUserId
+                    if (otherUserId != null) {
+                        IconButton(
+                            onClick = { onStartCall(otherUserId) },
+                            modifier = Modifier.testTag("chat_audio_call_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Call,
+                                contentDescription = "Audio Call",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        IconButton(
+                            onClick = { onStartCall(otherUserId) },
+                            modifier = Modifier.testTag("chat_video_call_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Videocam,
+                                contentDescription = "Video Call",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
                     AssistChip(
                         onClick = { showSafetySheet = true },
                         label = { Text("Safety") },
@@ -516,9 +552,10 @@ fun ChatScreen(
                 items(
                     count = messages.itemCount,
                     key = messages.itemKey { it.id },
-                    contentType = messages.itemContentType { "message" }
+                    contentType = messages.itemContentType { it.contentType.name }
                 ) { index ->
-                    val message = messages[index]
+                    val messageUi = messages[index]
+                    val message = messageUi?.originalEntity
                     
                     if (hasUnreadDivider && index == unreadCount) {
                         Box(
@@ -1286,8 +1323,44 @@ private fun M3MessageContent(
             }
         }
 
-        // Media Image Card
-        if (message.mediaType?.startsWith("image") == true) {
+        // Call Blob Card
+        if (message.mediaType == "call" || message.plaintextBody.startsWith("[Call]")) {
+            val callText = message.plaintextBody.removePrefix("[Call]").trim()
+            val isMissed = callText.contains("Missed", ignoreCase = true) || callText.contains("declined", ignoreCase = true)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.padding(vertical = 4.dp)
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = if (isMissed) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = if (isMissed) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (isMissed) Icons.Default.CallEnd else Icons.Default.Videocam,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+                Column {
+                    Text(
+                        text = callText,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isMissed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = timeFormatted,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        } else if (message.mediaType?.startsWith("image") == true) {
             val localPath = message.localDecryptedPath
             Box(
                 modifier = Modifier
@@ -1355,30 +1428,32 @@ private fun M3MessageContent(
             }
         }
 
-        // Text Body
-        if (message.plaintextBody.isNotBlank()) {
+        // Text Body (Only for normal text messages)
+        if (message.plaintextBody.isNotBlank() && message.mediaType != "call" && !message.plaintextBody.startsWith("[Call]")) {
             Text(
                 text = emphasizedText,
                 style = MaterialTheme.typography.bodyLarge
             )
         }
 
-        Spacer(modifier = Modifier.height(4.dp))
+        if (message.mediaType != "call" && !message.plaintextBody.startsWith("[Call]")) {
+            Spacer(modifier = Modifier.height(4.dp))
 
-        // Time + Status
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.End,
-            modifier = Modifier.align(Alignment.End)
-        ) {
-            Text(
-                text = timeFormatted,
-                style = MaterialTheme.typography.labelSmall,
-                color = if (isOutgoing) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f) else MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            if (isOutgoing) {
-                Spacer(modifier = Modifier.width(4.dp))
-                ExpressiveReceiptIcon(status = message.status)
+            // Time + Status
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.End,
+                modifier = Modifier.align(Alignment.End)
+            ) {
+                Text(
+                    text = timeFormatted,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isOutgoing) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f) else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (isOutgoing) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    ExpressiveReceiptIcon(status = message.status)
+                }
             }
         }
     }
