@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.ConversationEntity
 import com.example.data.local.FriendRequestEntity
+import com.example.data.local.MessageEntity
 import com.example.data.local.ProfileEntity
 import com.example.data.remote.SupabaseClientProvider
 import com.example.data.remote.ProfileAppearance
@@ -45,10 +46,13 @@ class HomeViewModel(
 ) : ViewModel() {
 
     val conversations: StateFlow<List<ConversationEntity>> = chatRepository.getConversations()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val callHistory: StateFlow<List<MessageEntity>> = chatRepository.getCallHistory()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val friends: StateFlow<List<ProfileEntity>> = friendRepository.getAcceptedFriends()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val pendingRequests: StateFlow<List<FriendRequestEntity>> = friendRepository.getPendingIncomingRequests()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

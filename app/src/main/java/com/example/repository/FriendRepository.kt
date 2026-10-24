@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 class FriendRepository(
     private val securePrefs: SecurePreferencesManager,
@@ -96,22 +97,43 @@ class FriendRepository(
         }
     }
 
-    suspend fun getProfileById(userId: String): ProfileEntity? = withContext(Dispatchers.IO) {
-        database.profileDao().getProfileById(userId)?.let { return@withContext it }
-        if (!supabaseProvider.isConfigured) return@withContext null
+    private val profileLastFetchTimes = ConcurrentHashMap<String, Long>()
+    private val CACHE_EXPIRATION_MS = 24 * 60 * 60 * 1000L // 24 hours
+
+    /**
+     * Retrieves profile from local Room DB cache first. Only fetches from remote network
+     * if no local profile exists, if cache is older than 24 hours, or if forceRefresh is true.
+     */
+    suspend fun getProfileWithCachePolicy(userId: String, forceRefresh: Boolean = false): ProfileEntity? = withContext(Dispatchers.IO) {
+        val cached = database.profileDao().getProfileById(userId)
+        val lastFetch = profileLastFetchTimes[userId] ?: 0L
+        val isExpired = (System.currentTimeMillis() - lastFetch) > CACHE_EXPIRATION_MS
+
+        if (cached != null && !forceRefresh && !isExpired) {
+            return@withContext cached
+        }
+
+        if (!supabaseProvider.isConfigured) return@withContext cached
+
         runCatching {
-            val profile = supabaseProvider.getClient().postgrest["profiles"].select {
+            val remote = supabaseProvider.getClient().postgrest["profiles"].select {
                 filter { eq("id", userId) }
-            }.decodeList<ProfileDto>().firstOrNull() ?: return@runCatching null
-            ProfileEntity(
-                id = profile.id,
-                displayName = profile.displayName,
-                tag = profile.tag,
-                avatarPath = profile.avatarPath,
-                isFriend = false
-            ).also { database.profileDao().insertOrUpdate(it) }
-        }.getOrNull()
+            }.decodeList<ProfileDto>().firstOrNull() ?: return@runCatching cached
+
+            val updated = ProfileEntity(
+                id = remote.id,
+                displayName = remote.displayName,
+                tag = remote.tag,
+                avatarPath = remote.avatarPath,
+                isFriend = cached?.isFriend ?: false
+            )
+            database.profileDao().insertOrUpdate(updated)
+            profileLastFetchTimes[userId] = System.currentTimeMillis()
+            updated
+        }.getOrDefault(cached)
     }
+
+    suspend fun getProfileById(userId: String): ProfileEntity? = getProfileWithCachePolicy(userId, forceRefresh = false)
 
     suspend fun getRemoteProfileById(userId: String): ProfileDto? = withContext(Dispatchers.IO) {
         if (!supabaseProvider.isConfigured) return@withContext null

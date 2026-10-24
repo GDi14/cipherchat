@@ -48,7 +48,8 @@ android {
     }
     release {
       isCrunchPngs = false
-      isMinifyEnabled = false
+      isMinifyEnabled = true
+      isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
     }
@@ -98,6 +99,7 @@ dependencies {
   implementation("androidx.graphics:graphics-shapes:1.0.0-beta01")
   implementation(libs.androidx.core.ktx)
   implementation("androidx.core:core-splashscreen:1.2.0")
+  implementation("androidx.profileinstaller:profileinstaller:1.4.1")
   implementation(libs.androidx.datastore.preferences)
   implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(libs.androidx.lifecycle.runtime.ktx)

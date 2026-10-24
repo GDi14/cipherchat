@@ -10,13 +10,55 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ConversationDao {
-    @Query("SELECT * FROM conversations ORDER BY lastMessageTimestamp DESC")
+    @Query("""
+        SELECT 
+            c.id, 
+            c.type, 
+            c.title, 
+            c.otherUserId, 
+            c.otherUserTag, 
+            COALESCE(c.avatarPath, p.avatarPath) AS avatarPath, 
+            c.lastMessageText, 
+            c.lastMessageTimestamp, 
+            c.unreadCount 
+        FROM conversations c 
+        LEFT JOIN profiles p ON c.otherUserId = p.id 
+        ORDER BY c.lastMessageTimestamp DESC
+    """)
     fun getAllConversations(): Flow<List<ConversationEntity>>
 
-    @Query("SELECT * FROM conversations WHERE id = :id LIMIT 1")
+    @Query("""
+        SELECT 
+            c.id, 
+            c.type, 
+            c.title, 
+            c.otherUserId, 
+            c.otherUserTag, 
+            COALESCE(c.avatarPath, p.avatarPath) AS avatarPath, 
+            c.lastMessageText, 
+            c.lastMessageTimestamp, 
+            c.unreadCount 
+        FROM conversations c 
+        LEFT JOIN profiles p ON c.otherUserId = p.id 
+        WHERE c.id = :id LIMIT 1
+    """)
     suspend fun getConversationById(id: String): ConversationEntity?
 
-    @Query("SELECT * FROM conversations WHERE type = 'direct' AND otherUserId = :otherUserId LIMIT 1")
+    @Query("""
+        SELECT 
+            c.id, 
+            c.type, 
+            c.title, 
+            c.otherUserId, 
+            c.otherUserTag, 
+            COALESCE(c.avatarPath, p.avatarPath) AS avatarPath, 
+            c.lastMessageText, 
+            c.lastMessageTimestamp, 
+            c.unreadCount 
+        FROM conversations c 
+        LEFT JOIN profiles p ON c.otherUserId = p.id 
+        WHERE c.type = 'direct' AND c.otherUserId = :otherUserId LIMIT 1
+    """)
     suspend fun getDirectConversation(otherUserId: String): ConversationEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -48,6 +90,13 @@ interface MessageDao {
 
     @Query("SELECT * FROM messages WHERE conversationId = :conversationId AND is_hidden = 0 ORDER BY timestamp DESC, id DESC LIMIT :limit")
     fun getLatestMessagesForConversation(conversationId: String, limit: Int): Flow<List<MessageEntity>>
+
+    @Query("""
+        SELECT * FROM messages 
+        WHERE (mediaType = 'call' OR plaintextBody LIKE '[Call]%') AND is_hidden = 0 
+        ORDER BY timestamp DESC
+    """)
+    fun getCallHistoryMessages(): Flow<List<MessageEntity>>
 
     @Query("SELECT * FROM messages WHERE conversationId = :conversationId AND is_hidden = 0 AND (timestamp < :beforeTimestamp OR (timestamp = :beforeTimestamp AND id < :beforeId)) ORDER BY timestamp DESC, id DESC LIMIT :limit")
     suspend fun getOlderMessages(conversationId: String, beforeTimestamp: Long, beforeId: String, limit: Int): List<MessageEntity>
@@ -132,7 +181,7 @@ interface FriendRequestDao {
 
 @Dao
 interface ProfileDao {
-    @Query("SELECT * FROM profiles WHERE isFriend = 1")
+    @Query("SELECT * FROM profiles WHERE isFriend = 1 ORDER BY displayName ASC, id ASC")
     fun getFriends(): Flow<List<ProfileEntity>>
 
     @Query("SELECT * FROM profiles WHERE id = :id LIMIT 1")

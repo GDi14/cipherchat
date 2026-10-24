@@ -16,7 +16,11 @@ class SecurePreferencesManager(context: Context) {
 
     private val appContext = context.applicationContext
 
-    val encryptedPrefs: SharedPreferences = openEncryptedPreferences()
+    private val fastPrefs: SharedPreferences by lazy {
+        appContext.getSharedPreferences(FAST_PREFS_FILE, Context.MODE_PRIVATE)
+    }
+
+    val encryptedPrefs: SharedPreferences by lazy { openEncryptedPreferences() }
 
     private fun openEncryptedPreferences(): SharedPreferences {
         try {
@@ -58,24 +62,36 @@ class SecurePreferencesManager(context: Context) {
         generateSequence(this) { it.cause }.any { it is AEADBadTagException }
 
     fun getOrCreateUserId(): String {
-        var userId = encryptedPrefs.getString(KEY_USER_ID, null)
+        var userId = fastPrefs.getString(KEY_USER_ID, null) ?: encryptedPrefs.getString(KEY_USER_ID, null)
         if (userId.isNullOrBlank()) {
             userId = UUID.randomUUID().toString()
+            fastPrefs.edit().putString(KEY_USER_ID, userId).apply()
             encryptedPrefs.edit().putString(KEY_USER_ID, userId).apply()
+        } else {
+            fastPrefs.edit().putString(KEY_USER_ID, userId).apply()
         }
         return userId
     }
 
     fun getOrCreateDeviceId(): String {
-        var deviceId = encryptedPrefs.getString(KEY_DEVICE_ID, null)
+        var deviceId = fastPrefs.getString(KEY_DEVICE_ID, null) ?: encryptedPrefs.getString(KEY_DEVICE_ID, null)
         if (deviceId.isNullOrBlank()) {
             deviceId = UUID.randomUUID().toString()
+            fastPrefs.edit().putString(KEY_DEVICE_ID, deviceId).apply()
             encryptedPrefs.edit().putString(KEY_DEVICE_ID, deviceId).apply()
+        } else {
+            fastPrefs.edit().putString(KEY_DEVICE_ID, deviceId).apply()
         }
         return deviceId
     }
 
     fun saveProfile(displayName: String, tag: String, avatarPath: String?, authUserId: String? = getSupabaseAuthUserId()) {
+        fastPrefs.edit()
+            .putString(KEY_DISPLAY_NAME, displayName)
+            .putString(KEY_TAG, tag)
+            .putString(KEY_AVATAR_PATH, avatarPath)
+            .putBoolean(KEY_REGISTERED, true)
+            .apply()
         encryptedPrefs.edit()
             .putString(KEY_DISPLAY_NAME, displayName)
             .putString(KEY_TAG, tag)
@@ -86,6 +102,7 @@ class SecurePreferencesManager(context: Context) {
     }
 
     fun setCurrentUserId(userId: String) {
+        fastPrefs.edit().putString(KEY_USER_ID, userId).apply()
         encryptedPrefs.edit().putString(KEY_USER_ID, userId).apply()
     }
 
@@ -99,10 +116,18 @@ class SecurePreferencesManager(context: Context) {
         encryptedPrefs.edit().remove(KEY_SUPABASE_AUTH_USER_ID).apply()
     }
 
-    fun getDisplayName(): String? = encryptedPrefs.getString(KEY_DISPLAY_NAME, null)
-    fun getTag(): String? = encryptedPrefs.getString(KEY_TAG, null)
-    fun getAvatarPath(): String? = encryptedPrefs.getString(KEY_AVATAR_PATH, null)
-    fun isRegistered(): Boolean = encryptedPrefs.getBoolean(KEY_REGISTERED, false)
+    fun getDisplayName(): String? = fastPrefs.getString(KEY_DISPLAY_NAME, null) ?: encryptedPrefs.getString(KEY_DISPLAY_NAME, null)
+    fun getTag(): String? = fastPrefs.getString(KEY_TAG, null) ?: encryptedPrefs.getString(KEY_TAG, null)
+    fun getAvatarPath(): String? = fastPrefs.getString(KEY_AVATAR_PATH, null) ?: encryptedPrefs.getString(KEY_AVATAR_PATH, null)
+    fun isRegistered(): Boolean {
+        return if (fastPrefs.contains(KEY_REGISTERED)) {
+            fastPrefs.getBoolean(KEY_REGISTERED, false)
+        } else {
+            val registered = encryptedPrefs.getBoolean(KEY_REGISTERED, false)
+            fastPrefs.edit().putBoolean(KEY_REGISTERED, registered).apply()
+            registered
+        }
+    }
     fun isVoiceOfUserEnabled(): Boolean = encryptedPrefs.getBoolean(KEY_VOICE_OF_USER, true)
     fun setVoiceOfUserEnabled(enabled: Boolean) {
         encryptedPrefs.edit().putBoolean(KEY_VOICE_OF_USER, enabled).apply()
@@ -152,10 +177,12 @@ class SecurePreferencesManager(context: Context) {
     fun getSupabaseAnonKey(): String? = encryptedPrefs.getString(KEY_SUPABASE_ANON_KEY, null)
 
     fun clearAll() {
+        fastPrefs.edit().clear().apply()
         encryptedPrefs.edit().clear().apply()
     }
 
     companion object {
+        private const val FAST_PREFS_FILE = "shieldchat_fast_prefs"
         private const val PREFS_FILE = "shieldchat_secure_prefs"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val KEY_USER_ID = "pref_user_id"

@@ -24,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ServiceCompat
@@ -213,10 +214,22 @@ private class DockOverlayLifecycleOwner : LifecycleOwner, SavedStateRegistryOwne
 
 @Composable
 private fun OverlayDockContent(onOpenConversation: (String) -> Unit) {
-    val conversations by AppDatabase.getInstance(androidx.compose.ui.platform.LocalContext.current)
+    val context = LocalContext.current
+    val securePrefs = remember { SecurePreferencesManager(context) }
+    val favoriteFriendIds = remember { securePrefs.getFavoriteFriendIds() }
+    val conversations by AppDatabase.getInstance(context)
         .conversationDao().getAllConversations().collectAsState(initial = emptyList())
-    val items = remember(conversations) {
-        conversations.map { conversation ->
+
+    val items = remember(conversations, favoriteFriendIds) {
+        val circleConversations = if (favoriteFriendIds.isEmpty()) {
+            conversations
+        } else {
+            conversations.filter { conv ->
+                conv.otherUserId != null && conv.otherUserId in favoriteFriendIds
+            }
+        }
+
+        circleConversations.map { conversation ->
             DockCategory(
                 id = conversation.id,
                 shortLabel = conversation.title.orEmpty().trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?",

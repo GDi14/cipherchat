@@ -28,10 +28,16 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import coil.Coil
+import coil.ImageLoader
+import coil.disk.DiskCache
+import coil.memory.MemoryCache
+import kotlinx.coroutines.Dispatchers
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.lifecycleScope
 import com.example.crypto.SignalProtocolManager
@@ -72,6 +78,7 @@ import androidx.core.splashscreen.SplashScreen
 import com.example.ui.call.CallScreen
 import com.example.ui.call.CallViewModel
 import com.example.ui.call.CallViewModelFactory
+import kotlinx.coroutines.delay
 import java.util.UUID
 
 sealed interface AppScreen {
@@ -189,13 +196,38 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun setupCoilImageLoader() {
+        runCatching {
+            val imageLoader = ImageLoader.Builder(applicationContext)
+                .memoryCache {
+                    MemoryCache.Builder(applicationContext)
+                        .maxSizePercent(0.25)
+                        .build()
+                }
+                .diskCache {
+                    DiskCache.Builder()
+                        .directory(applicationContext.cacheDir.resolve("avatar_cache"))
+                        .maxSizeBytes(100 * 1024 * 1024)
+                        .build()
+                }
+                .crossfade(false)
+                .build()
+            Coil.setImageLoader(imageLoader)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
         var isAppReady = false
         splashScreen.setKeepOnScreenCondition { !isAppReady }
         super.onCreate(savedInstanceState)
 
-        MessageNotificationChannel.ensureCreated(this)
+        setupCoilImageLoader()
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            MessageNotificationChannel.ensureCreated(this@MainActivity)
+        }
+
         notificationConversationRequest = intent?.getStringExtra(EXTRA_NOTIFICATION_CONVERSATION_ID)
         
         if (intent?.getStringExtra("action") == "accept_call") {
@@ -210,7 +242,7 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT)
         )
 
-        // 1. Core singletons
+        // 1. Core singletons initialized fast
         val securePrefs = SecurePreferencesManager.getInstance(applicationContext)
         val database = AppDatabase.getInstance(applicationContext)
         val supabaseProvider = SupabaseClientProvider(applicationContext, securePrefs)
@@ -239,14 +271,19 @@ class MainActivity : ComponentActivity() {
         foregroundSupabaseProvider = supabaseProvider
         foregroundChatRepository = chatRepository
         
-        chatRepository.startRealtimeSync()
+        lifecycleScope.launch(Dispatchers.IO) {
+            chatRepository.startRealtimeSync()
+        }
 
         setContent {
             val systemMotionEnabled = rememberSystemMotionEnabled()
             
-            // Release splash screen and request permissions post-first-frame
+            var isAppVisible by remember { mutableStateOf(false) }
             LaunchedEffect(Unit) {
+                delay(150)
                 isAppReady = true
+                delay(80)
+                isAppVisible = true
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
@@ -383,7 +420,8 @@ class MainActivity : ComponentActivity() {
                                         // But for now, we just go to the Call screen
                                         val callId = UUID.randomUUID().toString()
                                         currentScreen = AppScreen.Call(callId, remoteUserId, true)
-                                    }
+                                    },
+                                    isAppVisible = isAppVisible
                                 )
                             }
 

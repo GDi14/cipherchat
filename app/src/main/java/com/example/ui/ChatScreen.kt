@@ -49,6 +49,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -174,6 +176,7 @@ import com.example.ui.theme.ExpressiveIncomingBubbleShape
 import com.example.ui.theme.ExpressiveOutgoingBubbleShape
 import com.example.ui.theme.LocalExpressiveMotionEnabled
 import com.vanniktech.blurhash.BlurHash
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.coroutineScope
@@ -240,10 +243,9 @@ fun ChatScreen(
     val directUserId = uiState.conversation?.takeIf { it.type == "direct" }?.otherUserId
     var headerAvatarPath by remember(directUserId) { mutableStateOf<String?>(null) }
     LaunchedEffect(directUserId) {
-        headerAvatarPath = directUserId?.let { id ->
-            friendRepository.getRemoteProfileById(id)?.avatarPath
-                ?: friendRepository.getProfileById(id)?.avatarPath
-        }
+        val targetId = directUserId ?: return@LaunchedEffect
+        val profile = friendRepository.getProfileWithCachePolicy(targetId, forceRefresh = false)
+        headerAvatarPath = profile?.avatarPath
     }
     val messages = viewModel.messages.collectAsLazyPagingItems()
     val pendingMessages by viewModel.pendingMessages.collectAsState()
@@ -267,11 +269,10 @@ fun ChatScreen(
     LaunchedEffect(groupSenderIds) {
         val missingIds = groupSenderIds.filterNot { it in groupSenderAvatarPaths }
         if (missingIds.isNotEmpty()) {
-            val loaded = missingIds.associateWith { id ->
-                friendRepository.getRemoteProfileById(id)?.avatarPath
-                    ?: friendRepository.getProfileById(id)?.avatarPath
+            val localMap = missingIds.associateWith { id ->
+                friendRepository.getProfileWithCachePolicy(id, forceRefresh = false)?.avatarPath
             }
-            groupSenderAvatarPaths = groupSenderAvatarPaths + loaded
+            groupSenderAvatarPaths = groupSenderAvatarPaths + localMap
         }
     }
     val typingUsersMap by viewModel.typingUsers.collectAsState()
@@ -281,10 +282,7 @@ fun ChatScreen(
     val initialScrollIndex = remember(viewModel.conversationId, uiState.initialUnreadCount) {
         if (uiState.initialUnreadCount > 0) uiState.initialUnreadCount else 0
     }
-    val listState = rememberSaveable(
-        viewModel.conversationId,
-        saver = LazyListState.Saver
-    ) {
+    val listState = remember(viewModel.conversationId) {
         LazyListState(
             firstVisibleItemIndex = initialScrollIndex,
             firstVisibleItemScrollOffset = 0
@@ -375,7 +373,7 @@ fun ChatScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             Surface(
-                shape = ExpressiveBottomSurfaceShape,
+                shape = RectangleShape,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.96f)
             ) {
             TopAppBar(
@@ -507,6 +505,9 @@ fun ChatScreen(
                     .fillMaxSize()
                     .padding(bottom = with(density) { composerHeightPx.toDp() })
                     .align(Alignment.Center)
+                    .graphicsLayer {
+                        alpha = if (initialMessagePositioned || totalMessageCount == 0) 1f else 0f
+                    }
             ) {
                 items(visiblePending, key = { it.id }) { message ->
                     val isInSendFlight = sendFlight?.let { flight ->
@@ -659,7 +660,7 @@ fun ChatScreen(
 
             // M3 Tonal Surface Bottom Composer
             Surface(
-                shape = ExpressiveTopSurfaceShape,
+                shape = RectangleShape,
                 color = MaterialTheme.colorScheme.surfaceContainer,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)

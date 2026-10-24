@@ -23,7 +23,9 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -57,12 +59,16 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.CallMade
+import androidx.compose.material.icons.filled.CallMissed
+import androidx.compose.material.icons.filled.CallReceived
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
@@ -204,9 +210,11 @@ import java.util.Locale
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.text.ExperimentalTextApi
 import com.example.R
+import com.example.data.local.MessageEntity
 import com.example.ui.theme.ExpressiveShapesList
 import com.example.ui.theme.ExpressiveStarShape
 import com.example.ui.theme.getRandomExpressiveShape
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlin.math.abs
@@ -215,10 +223,18 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, onNavigateToNewGroup: () -> Unit,
-               onOpenAddFriends: () -> Unit, onOpenNotifications: () -> Unit,
-               onOpenAppSettings: () -> Unit, onOpenProfileSettings: () -> Unit,
-               onOpenProfile: (String) -> Unit = {}, onStartCall: (String) -> Unit = {}) {
+fun HomeScreen(
+    viewModel: HomeViewModel,
+    onOpenConversation: (String) -> Unit,
+    onNavigateToNewGroup: () -> Unit,
+    onOpenAddFriends: () -> Unit,
+    onOpenNotifications: () -> Unit,
+    onOpenAppSettings: () -> Unit,
+    onOpenProfileSettings: () -> Unit,
+    onOpenProfile: (String) -> Unit = {},
+    onStartCall: (String) -> Unit = {},
+    isAppVisible: Boolean = true
+) {
     val state by viewModel.uiState.collectAsState()
     val conversations by viewModel.conversations.collectAsState()
     val friends by viewModel.friends.collectAsState()
@@ -232,6 +248,17 @@ fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, o
     var chatSurfaceExpansionPx by remember { mutableStateOf(0f) }
     var chatListHasOverflow by remember { mutableStateOf(false) }
     val chatListState = rememberLazyListState()
+
+    val topIconRotation = remember { Animatable(-180f) }
+    LaunchedEffect(isAppVisible) {
+        if (isAppVisible) {
+            topIconRotation.snapTo(-180f)
+            topIconRotation.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = 1100, easing = ExpressiveMotion.EmphasizedDecelerateEasing)
+            )
+        }
+    }
     val statusBarHeightPx = WindowInsets.statusBars.getTop(LocalDensity.current).toFloat()
     val chatSurfaceExpansionLimitPx = (homeHeaderHeightPx - statusBarHeightPx).coerceAtLeast(0f)
     val homeScrollConnection = remember(
@@ -321,7 +348,10 @@ fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, o
                                     model = R.drawable.cipher_chat_logo,
                                     contentDescription = "CypherChat logo",
                                     contentScale = ContentScale.Crop,
-                                    modifier = Modifier.size(36.dp).clip(CircleShape)
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .graphicsLayer { rotationZ = topIconRotation.value }
                                 )
                                 Text(
                                     when (state.selectedTab) { 1 -> "Your groups"; 2 -> "Calls"; else -> "Messages" },
@@ -331,15 +361,25 @@ fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, o
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
-                            IconButton(onClick = onOpenNotifications, modifier = Modifier.testTag("notifications_action")) {
-                                    BadgedBox(badge = { if (requests.isNotEmpty()) Badge { Text("${requests.size}") } }) {
-                                        Icon(Icons.Default.Notifications, contentDescription = "Notifications")
-                                    }
+                            IconButton(
+                                onClick = onOpenNotifications,
+                                modifier = Modifier
+                                    .testTag("notifications_action")
+                                    .graphicsLayer { rotationZ = topIconRotation.value }
+                            ) {
+                                BadgedBox(badge = { if (requests.isNotEmpty()) Badge { Text("${requests.size}") } }) {
+                                    Icon(Icons.Default.Notifications, contentDescription = "Notifications")
                                 }
-                                Box {
-                                    IconButton(onClick = { settingsMenuExpanded = true }, modifier = Modifier.testTag("settings_action")) {
-                                        Icon(Icons.Default.Settings, contentDescription = "Settings")
-                                    }
+                            }
+                            Box {
+                                IconButton(
+                                    onClick = { settingsMenuExpanded = true },
+                                    modifier = Modifier
+                                        .testTag("settings_action")
+                                        .graphicsLayer { rotationZ = topIconRotation.value }
+                                ) {
+                                    Icon(Icons.Default.Settings, contentDescription = "Settings")
+                                }
                                     DropdownMenu(
                                         expanded = settingsMenuExpanded,
                                         onDismissRequest = { settingsMenuExpanded = false },
@@ -420,8 +460,20 @@ fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, o
                             when (tab) {
                                 1 -> M3ChatsTab(groupConversations, onOpenConversation, onNavigateToNewGroup,
                                     state.isSyncing, viewModel::sync, scopeKey = "groups", searchQuery = pageSearchQuery,
-                                    onSearchQueryChange = { pageSearchQuery = it }, showSearchField = false, onOpenProfile = onOpenProfile)
-                                2 -> M3CallsTab(searchQuery = pageSearchQuery, onStartCall = onStartCall)
+                                    onSearchQueryChange = { pageSearchQuery = it }, showSearchField = false, onOpenProfile = onOpenProfile,
+                                    isAppVisible = isAppVisible)
+                                2 -> {
+                                    val callHistory by viewModel.callHistory.collectAsState()
+                                    M3CallsTab(
+                                        callHistory = callHistory,
+                                        conversations = conversations,
+                                        friends = friends,
+                                        myUserId = viewModel.authRepository.myUserId,
+                                        searchQuery = pageSearchQuery,
+                                        onStartCall = onStartCall,
+                                        onOpenConversation = onOpenConversation
+                                    )
+                                }
                                 else -> M3ChatsTab(directConversations, onOpenConversation, onNavigateToNewGroup,
                                     state.isSyncing, viewModel::sync, friends, onOpenAddFriends,
                                     state.favoriteFriendIds, scopeKey = "chats", searchQuery = pageSearchQuery,
@@ -432,7 +484,8 @@ fun HomeScreen(viewModel: HomeViewModel, onOpenConversation: (String) -> Unit, o
                                     onYourCircleCenterMeasured = { yourCircleCenterYInRootPx = it },
                                     onOpenConversationWithFriend = { friend ->
                                         viewModel.openConversationWithFriend(friend, onOpenConversation)
-                                    })
+                                    },
+                                    isAppVisible = isAppVisible)
                             }
                         }
                     }
@@ -480,7 +533,8 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                homeListState: LazyListState? = null, sheetExpansionPx: Float = 0f,
                onChatListOverflowChange: (Boolean) -> Unit = {},
                onYourCircleCenterMeasured: (Int) -> Unit = {},
-               onOpenConversationWithFriend: (ProfileEntity) -> Unit = {}) {
+               onOpenConversationWithFriend: (ProfileEntity) -> Unit = {},
+               isAppVisible: Boolean = true) {
     var localQuery by remember(scopeKey) { mutableStateOf("") }
     val query = searchQuery ?: localQuery
     val updateQuery: (String) -> Unit = onSearchQueryChange ?: { localQuery = it }
@@ -581,8 +635,10 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                         ) {
                             Column(Modifier.padding(start = 16.dp, end = 14.dp, top = 14.dp, bottom = 12.dp)) {
                                 Text("Your Circle", style = MaterialTheme.typography.titleLarge)
-                                val favoriteFriends = friends.filter { it.id in favoriteFriendIds }
-                                if (favoriteFriends.isEmpty()) {
+                                val favoriteFriends = remember(friends, favoriteFriendIds) {
+                                    favoriteFriendIds.mapNotNull { favId -> friends.firstOrNull { it.id == favId } }
+                                }
+                                if (favoriteFriendIds.isEmpty()) {
                                     Text(
                                         "Favorite friends to keep them close here.",
                                         style = MaterialTheme.typography.bodyMedium,
@@ -601,32 +657,47 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         onAddFriends?.let {
                                             item {
-                                                    Surface(
-                                                        onClick = it,
-                                                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-                                                        color = Color.Transparent,
-                                                        modifier = Modifier.width(92.dp)
+                                                Surface(
+                                                    onClick = it,
+                                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                                                    color = Color.Transparent,
+                                                    modifier = Modifier.width(92.dp)
+                                                ) {
+                                                    Column(
+                                                        Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+                                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                                        verticalArrangement = Arrangement.spacedBy(6.dp)
                                                     ) {
-                                                        Column(
-                                                            Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
-                                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                                        Surface(
+                                                            shape = ExpressiveStarShape,
+                                                            color = MaterialTheme.colorScheme.secondaryContainer,
+                                                            modifier = Modifier.size(80.dp)
                                                         ) {
-                                                            Surface(
-                                                                shape = ExpressiveStarShape,
-                                                                color = MaterialTheme.colorScheme.secondaryContainer,
-                                                                modifier = Modifier.size(80.dp)
-                                                            ) {
-                                                                Icon(Icons.Default.PersonAdd, contentDescription = "Add friends", modifier = Modifier.padding(24.dp))
-                                                            }
-                                                            Text("Add", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                                                            Icon(Icons.Default.PersonAdd, contentDescription = "Add friends", modifier = Modifier.padding(24.dp))
                                                         }
+                                                        Text("Add", style = MaterialTheme.typography.labelSmall, maxLines = 1)
                                                     }
+                                                }
                                             }
                                         }
                                         itemsIndexed(favoriteFriends, key = { _, it -> it.id }) { index, friend ->
                                             val conversation = conversations.firstOrNull { it.otherUserId == friend.id && it.type == "direct" }
                                             val assignedShape = ExpressiveShapesList[(index + 1) % ExpressiveShapesList.size]
+
+                                            val circleEntrance = remember { Animatable(0f) }
+                                            LaunchedEffect(isAppVisible, friend.id) {
+                                                if (isAppVisible) {
+                                                    delay((index * 40).coerceAtMost(200).toLong())
+                                                    circleEntrance.animateTo(
+                                                        targetValue = 1f,
+                                                        animationSpec = tween(
+                                                            durationMillis = 750,
+                                                            easing = ExpressiveMotion.EmphasizedDecelerateEasing
+                                                        )
+                                                    )
+                                                }
+                                            }
+
                                             Surface(
                                                 onClick = {
                                                     conversation?.let { onOpenConversation(it.id) }
@@ -635,15 +706,28 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                                                 shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
                                                 color = Color.Transparent,
                                                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                modifier = Modifier.width(104.dp).testTag("circle_friend_${friend.id}")
+                                                modifier = Modifier
+                                                    .width(104.dp)
+                                                    .testTag("circle_friend_${friend.id}")
+                                                    .graphicsLayer {
+                                                        alpha = circleEntrance.value
+                                                        scaleX = 0.85f + (circleEntrance.value * 0.15f)
+                                                        scaleY = 0.85f + (circleEntrance.value * 0.15f)
+                                                        rotationZ = (1f - circleEntrance.value) * 30f
+                                                    }
                                             ) {
                                                 Column(
                                                     Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
                                                     horizontalAlignment = Alignment.CenterHorizontally,
                                                     verticalArrangement = Arrangement.spacedBy(6.dp)
                                                 ) {
-                                                    ExpressiveAvatar(friend.displayName, friend.avatarPath, 80.dp,
-                                                        shape = assignedShape, border = null)
+                                                    ExpressiveAvatar(
+                                                        friend.displayName,
+                                                        friend.avatarPath,
+                                                        80.dp,
+                                                        shape = assignedShape,
+                                                        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.35f))
+                                                    )
                                                     Text(friend.displayName, style = MaterialTheme.typography.labelSmall,
                                                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                                                 }
@@ -727,11 +811,31 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                     
                     val isUnread = conversation.unreadCount > 0
                     
+                    val itemEntrance = remember { Animatable(0f) }
+                    LaunchedEffect(isAppVisible, conversation.id) {
+                        if (isAppVisible) {
+                            delay((index * 35).coerceAtMost(200).toLong())
+                            itemEntrance.animateTo(
+                                targetValue = 1f,
+                                animationSpec = tween(
+                                    durationMillis = 650,
+                                    easing = ExpressiveMotion.EmphasizedDecelerateEasing
+                                )
+                            )
+                        }
+                    }
+
                     Surface(
                         onClick = { onOpenConversation(conversation.id) },
                         shape = shape,
                         color = if (isUnread) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surface,
-                        modifier = Modifier.fillMaxWidth().padding(start = horizontalMargin, end = horizontalMargin, bottom = 2.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = horizontalMargin, end = horizontalMargin, bottom = 2.dp)
+                            .graphicsLayer {
+                                alpha = itemEntrance.value
+                                translationY = (1f - itemEntrance.value) * 24.dp.toPx()
+                            }
                     ) {
                         ListItem(
                             leadingContent = {
@@ -948,32 +1052,138 @@ fun M3FriendsTab(viewModel: HomeViewModel, friends: List<ProfileEntity>, pending
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun M3CallsTab(
+    callHistory: List<MessageEntity> = emptyList(),
+    conversations: List<ConversationEntity> = emptyList(),
+    friends: List<ProfileEntity> = emptyList(),
+    myUserId: String = "",
     searchQuery: String = "",
-    onStartCall: (String) -> Unit = {}
+    onStartCall: (String) -> Unit = {},
+    onOpenConversation: (String) -> Unit = {}
 ) {
+    val filteredCalls = remember(callHistory, searchQuery) {
+        if (searchQuery.isBlank()) callHistory else callHistory.filter {
+            it.plaintextBody.contains(searchQuery, ignoreCase = true) ||
+            it.senderName?.contains(searchQuery, ignoreCase = true) == true
+        }
+    }
+
     Surface(
         modifier = Modifier.fillMaxSize(),
-        shape = ExpressiveTopSurfaceShape,
+        shape = RectangleShape,
         color = MaterialTheme.colorScheme.surfaceContainerLow
     ) {
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)
         ) {
             Text("RECENT ACTIVITY", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-            Text("Call history", style = MaterialTheme.typography.headlineSmall)
-            ExpressiveEmptyState(
-                if (searchQuery.isBlank()) "No calls yet" else "No matching calls",
-                if (searchQuery.isBlank()) "Your recent calls will appear here." else "Try another search.",
-                icon = { Icon(Icons.Default.Call, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(40.dp)) })
-            
-            Spacer(modifier = Modifier.height(32.dp))
-            
-            Button(
-                onClick = { onStartCall("test_user_id") }, // TODO: Pass an actual user ID
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Start Test Call")
+            Text("Call history", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(bottom = 12.dp))
+
+            if (filteredCalls.isEmpty()) {
+                ExpressiveEmptyState(
+                    title = if (searchQuery.isBlank()) "No calls yet" else "No matching calls",
+                    description = if (searchQuery.isBlank()) "Your recent calls will appear here." else "Try another search.",
+                    icon = { Icon(Icons.Default.Call, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(40.dp)) }
+                )
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    itemsIndexed(filteredCalls, key = { _, item -> item.id }) { _, call ->
+                        val conv = conversations.firstOrNull { it.id == call.conversationId }
+                        val peerUserId = conv?.otherUserId ?: if (call.senderId != myUserId) call.senderId else call.recipientId ?: ""
+                        val peerFriend = friends.firstOrNull { it.id == peerUserId }
+                        val title = conv?.title ?: peerFriend?.displayName ?: call.senderName ?: "Call"
+                        val avatarUrl = conv?.avatarPath ?: peerFriend?.avatarPath
+                        
+                        val isOutgoing = call.senderId == myUserId
+                        val rawBody = call.plaintextBody.removePrefix("[Call]").trim()
+                        val isMissed = rawBody.startsWith("Missed", ignoreCase = true)
+
+                        val time = remember(call.timestamp) {
+                            if (call.timestamp == 0L) "" else {
+                                val date = Date(call.timestamp)
+                                val hours = (System.currentTimeMillis() - date.time) / 3_600_000
+                                SimpleDateFormat(if (hours < 24) "HH:mm" else "MMM d", Locale.getDefault()).format(date)
+                            }
+                        }
+
+                        Surface(
+                            onClick = {
+                                if (call.conversationId.isNotBlank()) onOpenConversation(call.conversationId)
+                                else if (peerUserId.isNotBlank()) onStartCall(peerUserId)
+                            },
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            ListItem(
+                                leadingContent = {
+                                    ExpressiveAvatar(name = title, avatarUrl = avatarUrl, size = 48.dp)
+                                },
+                                headlineContent = {
+                                    Text(
+                                        text = title,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                },
+                                supportingContent = {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = when {
+                                                isMissed -> Icons.Default.CallMissed
+                                                isOutgoing -> Icons.Default.CallMade
+                                                else -> Icons.Default.CallReceived
+                                            },
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                            tint = if (isMissed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(
+                                            text = if (rawBody.isBlank()) "Voice Call" else rawBody,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = if (isMissed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                },
+                                trailingContent = {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        if (time.isNotBlank()) {
+                                            Text(
+                                                text = time,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = {
+                                                if (peerUserId.isNotBlank()) onStartCall(peerUserId)
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Call,
+                                                contentDescription = "Call back",
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    }
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                            )
+                        }
+                    }
+                }
             }
         }
     }

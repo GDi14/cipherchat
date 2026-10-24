@@ -60,7 +60,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.remember
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.ui.theme.PillShape
 import com.example.ui.theme.LocalExpressiveMotionEnabled
 
@@ -127,10 +130,10 @@ fun ExpressiveAvatar(
     border: BorderStroke? = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     modifier: Modifier = Modifier
 ) {
-    val usePrimaryContainer = (name.hashCode() and 1) == 0
-    val avatarContainerColor = if (usePrimaryContainer) MaterialTheme.colorScheme.primaryContainer
+    val useSecondary = (name.hashCode() and 1) == 0
+    val avatarContainerColor = if (useSecondary) MaterialTheme.colorScheme.secondaryContainer
     else MaterialTheme.colorScheme.tertiaryContainer
-    val avatarContentColor = if (usePrimaryContainer) MaterialTheme.colorScheme.onPrimaryContainer
+    val avatarContentColor = if (useSecondary) MaterialTheme.colorScheme.onSecondaryContainer
     else MaterialTheme.colorScheme.onTertiaryContainer
     Box(
         modifier = modifier.size(size),
@@ -143,14 +146,10 @@ fun ExpressiveAvatar(
             contentColor = avatarContentColor,
             border = border
         ) {
-            if (!avatarUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = avatarUrl,
-                    contentDescription = name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.matchParentSize().clip(shape)
-                )
-            } else {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
                 Text(
                     text = name.firstOrNull()?.uppercase() ?: "?",
                     style = MaterialTheme.typography.titleMedium.copy(
@@ -159,6 +158,22 @@ fun ExpressiveAvatar(
                     color = avatarContentColor,
                     modifier = Modifier.fillMaxSize().wrapContentSize(Alignment.Center)
                 )
+
+                if (!avatarUrl.isNullOrBlank()) {
+                    val context = LocalContext.current
+                    val imageRequest = remember(avatarUrl) {
+                        ImageRequest.Builder(context)
+                            .data(avatarUrl)
+                            .crossfade(false)
+                            .build()
+                    }
+                    AsyncImage(
+                        model = imageRequest,
+                        contentDescription = name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize().clip(shape)
+                    )
+                }
             }
         }
 

@@ -5,8 +5,11 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -192,22 +195,28 @@ fun CallScreen(
             }
         }
 
-        // Local Video (PiP)
+        // Local Video (PiP) - Draggable and always visible regardless of controls
+        var pipOffsetX by remember { mutableFloatStateOf(0f) }
+        var pipOffsetY by remember { mutableFloatStateOf(0f) }
+
         if (localVideoTrack != null && isVideoEnabled) {
-            AnimatedVisibility(
-                visible = areControlsVisible,
-                enter = if (!motionEnabled) EnterTransition.None else fadeIn(
-                    animationSpec = tween(ExpressiveMotion.DurationMedium1)
-                ),
-                exit = if (!motionEnabled) ExitTransition.None else fadeOut(
-                    animationSpec = tween(ExpressiveMotion.DurationShort4)
-                ),
+            Box(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
+                    .fillMaxSize()
                     .padding(20.dp)
             ) {
                 Surface(
-                    modifier = Modifier.size(width = 110.dp, height = 150.dp),
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset { IntOffset(pipOffsetX.roundToInt(), pipOffsetY.roundToInt()) }
+                        .size(width = 110.dp, height = 150.dp)
+                        .pointerInput(Unit) {
+                            detectDragGestures { change, dragAmount ->
+                                change.consume()
+                                pipOffsetX += dragAmount.x
+                                pipOffsetY += dragAmount.y
+                            }
+                        },
                     shape = RoundedCornerShape(24.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerLow,
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),

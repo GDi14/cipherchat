@@ -133,6 +133,9 @@ class ChatRepository(
     fun getConversations(): Flow<List<ConversationEntity>> =
         database.conversationDao().getAllConversations()
 
+    fun getCallHistory(): Flow<List<MessageEntity>> =
+        database.messageDao().getCallHistoryMessages()
+
     suspend fun peerFingerprint(peerUserId: String): String? {
         if (!supabaseProvider.isConfigured) return null
         val bundle = supabaseProvider.getClient().postgrest["prekeys"].select {
