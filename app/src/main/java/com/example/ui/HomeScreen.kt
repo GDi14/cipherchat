@@ -12,6 +12,7 @@ import android.hardware.SensorManager
 import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -23,9 +24,15 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -79,9 +86,15 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.DockedSearchBar
+import androidx.compose.material3.SearchBar
+import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -108,6 +121,8 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
@@ -119,6 +134,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ToggleButton
+import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.SwitchDefaults
@@ -137,7 +154,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material3.BadgedBox
@@ -208,6 +229,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.ExperimentalTextApi
 import com.example.R
 import com.example.data.local.MessageEntity
@@ -220,6 +242,299 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ExpressiveContainedSearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    placeholderText: String,
+    modifier: Modifier = Modifier,
+    testTag: String = "expressive_search_input",
+    recentSearches: List<String> = emptyList(),
+    onAddRecentSearch: (String) -> Unit = {},
+    onRemoveRecentSearch: (String) -> Unit = {},
+    onClearRecentSearches: () -> Unit = {},
+    selectedTab: Int = 0,
+    conversations: List<ConversationEntity> = emptyList(),
+    callHistory: List<MessageEntity> = emptyList(),
+    friends: List<ProfileEntity> = emptyList(),
+    myUserId: String = "",
+    onOpenConversation: (String) -> Unit = {},
+    onStartCall: (String) -> Unit = {},
+    onOpenProfile: (String) -> Unit = {}
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = expanded) {
+        expanded = false
+        onQueryChange("")
+    }
+
+    val conversationResults = remember(conversations, friends, query, selectedTab) {
+        if (query.isBlank() || selectedTab == 2) emptyList() else {
+            when (selectedTab) {
+                1 -> conversations.filter { conv -> conv.type == "group" && listOfNotNull(conv.title, conv.lastMessageText).any { it.contains(query, ignoreCase = true) } }
+                else -> conversations.filter { conv -> conv.type == "direct" && listOfNotNull(conv.title, conv.otherUserTag, conv.lastMessageText).any { it.contains(query, ignoreCase = true) } }
+            }
+        }
+    }
+
+    val callResults = remember(callHistory, friends, query, selectedTab) {
+        if (query.isBlank() || selectedTab != 2) emptyList() else {
+            callHistory.filter { call ->
+                listOfNotNull(call.plaintextBody, call.senderName).any { it.contains(query, ignoreCase = true) }
+            }
+        }
+    }
+
+    val isResultsEmpty = if (selectedTab == 2) callResults.isEmpty() else conversationResults.isEmpty()
+
+    DockedSearchBar(
+        inputField = {
+            SearchBarDefaults.InputField(
+                query = query,
+                onQueryChange = onQueryChange,
+                onSearch = { searchQuery ->
+                    if (searchQuery.isNotBlank()) {
+                        onAddRecentSearch(searchQuery.trim())
+                    }
+                    expanded = false
+                },
+                expanded = expanded,
+                onExpandedChange = { expanded = it },
+                placeholder = { Text(placeholderText, style = MaterialTheme.typography.bodyMedium) },
+                leadingIcon = {
+                    if (expanded) {
+                        IconButton(onClick = {
+                            expanded = false
+                            onQueryChange("")
+                        }) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    } else {
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        IconButton(onClick = { onQueryChange("") }) {
+                            Icon(Icons.Default.Clear, contentDescription = "Clear search")
+                        }
+                    }
+                },
+                colors = SearchBarDefaults.inputFieldColors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                )
+            )
+        },
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+        colors = SearchBarDefaults.colors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        ),
+        shape = ExpressiveCardShape,
+        modifier = modifier.testTag(testTag)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 480.dp)
+                .padding(vertical = 4.dp)
+        ) {
+            if (query.isBlank()) {
+                if (recentSearches.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Recent searches",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            "Clear all",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.clickable { onClearRecentSearches() }
+                        )
+                    }
+                    recentSearches.forEach { searchItem ->
+                        ListItem(
+                            leadingContent = {
+                                Icon(
+                                    Icons.Default.History,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            },
+                            headlineContent = { Text(searchItem, style = MaterialTheme.typography.bodyMedium) },
+                            trailingContent = {
+                                IconButton(
+                                    onClick = { onRemoveRecentSearch(searchItem) }
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "Remove search",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onQueryChange(searchItem)
+                                    onAddRecentSearch(searchItem)
+                                }
+                        )
+                    }
+                } else {
+                    Text(
+                        when (selectedTab) {
+                            1 -> "Type to search groups"
+                            2 -> "Type to search call history"
+                            else -> "Type a name, handle, or message to search"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                    )
+                }
+            } else {
+                if (isResultsEmpty) {
+                    Text(
+                        when (selectedTab) {
+                            1 -> "No matching groups"
+                            2 -> "No matching calls"
+                            else -> "No matching chats or messages"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                    )
+                } else {
+                    Text(
+                        "Search results",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                    )
+                    if (selectedTab == 2) {
+                        callResults.take(6).forEach { call ->
+                            val conv = conversations.firstOrNull { it.id == call.conversationId }
+                            val peerUserId = conv?.otherUserId ?: if (call.senderId != myUserId) call.senderId else call.recipientId ?: ""
+                            val peerFriend = friends.firstOrNull { it.id == peerUserId }
+                            val title = conv?.title ?: peerFriend?.displayName ?: call.senderName ?: "Call"
+                            val avatarUrl = conv?.avatarPath ?: peerFriend?.avatarPath
+                            val isOutgoing = call.senderId == myUserId
+                            val rawBody = call.plaintextBody.removePrefix("[Call]").trim()
+                            val isMissed = rawBody.startsWith("Missed", ignoreCase = true)
+
+                            ListItem(
+                                leadingContent = {
+                                    ExpressiveAvatar(name = title, avatarUrl = avatarUrl, size = 40.dp)
+                                },
+                                headlineContent = {
+                                    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                },
+                                supportingContent = {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Icon(
+                                            imageVector = when {
+                                                isMissed -> Icons.Default.CallMissed
+                                                isOutgoing -> Icons.Default.CallMade
+                                                else -> Icons.Default.CallReceived
+                                            },
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                            tint = if (isMissed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(
+                                            if (rawBody.isBlank()) "Voice Call" else rawBody,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = if (isMissed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        onAddRecentSearch(query.trim())
+                                        expanded = false
+                                        onQueryChange("")
+                                        if (call.conversationId.isNotBlank()) onOpenConversation(call.conversationId)
+                                        else if (peerUserId.isNotBlank()) onStartCall(peerUserId)
+                                    }
+                            )
+                        }
+                    } else {
+                        conversationResults.take(6).forEach { conv ->
+                            val convAvatar = conv.avatarPath ?: friends.firstOrNull { it.id == conv.otherUserId }?.avatarPath
+                            ListItem(
+                                leadingContent = {
+                                    ExpressiveAvatar(
+                                        name = conv.title ?: "Chat",
+                                        avatarUrl = convAvatar,
+                                        size = 40.dp,
+                                        modifier = Modifier.clickable(enabled = conv.otherUserId != null) {
+                                            conv.otherUserId?.let(onOpenProfile)
+                                        }
+                                    )
+                                },
+                                headlineContent = {
+                                    Text(
+                                        conv.title ?: "Encrypted conversation",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                },
+                                supportingContent = {
+                                    conv.lastMessageText?.let { preview ->
+                                        Text(
+                                            preview,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        onAddRecentSearch(query.trim())
+                                        expanded = false
+                                        onQueryChange("")
+                                        onOpenConversation(conv.id)
+                                    }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -249,14 +564,62 @@ fun HomeScreen(
     var chatListHasOverflow by remember { mutableStateOf(false) }
     val chatListState = rememberLazyListState()
 
+    val recentSearches = rememberSaveable(
+        saver = listSaver(
+            save = { it.toList() },
+            restore = { it.toMutableStateList() }
+        )
+    ) {
+        mutableStateListOf<String>()
+    }
+    val addRecentSearch: (String) -> Unit = { searchQuery ->
+        val trimmed = searchQuery.trim()
+        if (trimmed.isNotBlank()) {
+            recentSearches.removeAll { it.equals(trimmed, ignoreCase = true) }
+            recentSearches.add(0, trimmed)
+            while (recentSearches.size > 5) {
+                recentSearches.removeAt(recentSearches.lastIndex)
+            }
+        }
+    }
+    val removeRecentSearch: (String) -> Unit = { searchQuery ->
+        recentSearches.remove(searchQuery)
+    }
+    val clearRecentSearches: () -> Unit = {
+        recentSearches.clear()
+    }
+
     val topIconRotation = remember { Animatable(-180f) }
+    val topIconScale = remember { Animatable(0.5f) }
+    val notificationBellRotation = remember { Animatable(0f) }
+    
     LaunchedEffect(isAppVisible) {
         if (isAppVisible) {
             topIconRotation.snapTo(-180f)
-            topIconRotation.animateTo(
-                targetValue = 0f,
-                animationSpec = tween(durationMillis = 1100, easing = ExpressiveMotion.EmphasizedDecelerateEasing)
-            )
+            topIconScale.snapTo(0.5f)
+            notificationBellRotation.snapTo(0f)
+            
+            launch {
+                topIconRotation.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(durationMillis = 1100, easing = ExpressiveMotion.EmphasizedDecelerateEasing)
+                )
+            }
+            launch {
+                topIconScale.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 900, easing = ExpressiveMotion.EmphasizedDecelerateEasing)
+                )
+            }
+            
+            launch {
+                delay(500)
+                notificationBellRotation.animateTo(9f, animationSpec = tween(240, easing = ExpressiveMotion.EmphasizedDecelerateEasing))
+                notificationBellRotation.animateTo(-7f, animationSpec = tween(240, easing = ExpressiveMotion.EmphasizedDecelerateEasing))
+                notificationBellRotation.animateTo(4f, animationSpec = tween(200, easing = ExpressiveMotion.EmphasizedDecelerateEasing))
+                notificationBellRotation.animateTo(-2f, animationSpec = tween(180, easing = ExpressiveMotion.EmphasizedDecelerateEasing))
+                notificationBellRotation.animateTo(0f, animationSpec = tween(160, easing = ExpressiveMotion.EmphasizedDecelerateEasing))
+            }
         }
     }
     val statusBarHeightPx = WindowInsets.statusBars.getTop(LocalDensity.current).toFloat()
@@ -351,7 +714,11 @@ fun HomeScreen(
                                     modifier = Modifier
                                         .size(36.dp)
                                         .clip(CircleShape)
-                                        .graphicsLayer { rotationZ = topIconRotation.value }
+                                        .graphicsLayer { 
+                                            rotationZ = topIconRotation.value 
+                                            scaleX = topIconScale.value
+                                            scaleY = topIconScale.value
+                                        }
                                 )
                                 Text(
                                     when (state.selectedTab) { 1 -> "Your groups"; 2 -> "Calls"; else -> "Messages" },
@@ -365,10 +732,17 @@ fun HomeScreen(
                                 onClick = onOpenNotifications,
                                 modifier = Modifier
                                     .testTag("notifications_action")
-                                    .graphicsLayer { rotationZ = topIconRotation.value }
                             ) {
                                 BadgedBox(badge = { if (requests.isNotEmpty()) Badge { Text("${requests.size}") } }) {
-                                    Icon(Icons.Default.Notifications, contentDescription = "Notifications")
+                                    Icon(
+                                        Icons.Default.Notifications, 
+                                        contentDescription = "Notifications",
+                                        tint = if (requests.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.graphicsLayer {
+                                            rotationZ = notificationBellRotation.value
+                                            transformOrigin = TransformOrigin(0.5f, 0.0f)
+                                        }
+                                    )
                                 }
                             }
                             Box {
@@ -376,9 +750,12 @@ fun HomeScreen(
                                     onClick = { settingsMenuExpanded = true },
                                     modifier = Modifier
                                         .testTag("settings_action")
-                                        .graphicsLayer { rotationZ = topIconRotation.value }
                                 ) {
-                                    Icon(Icons.Default.Settings, contentDescription = "Settings")
+                                    Icon(
+                                        Icons.Default.Settings, 
+                                        contentDescription = "Settings",
+                                        modifier = Modifier.graphicsLayer { rotationZ = topIconRotation.value }
+                                    )
                                 }
                                     DropdownMenu(
                                         expanded = settingsMenuExpanded,
@@ -403,31 +780,57 @@ fun HomeScreen(
                                 }
                             }
                             Box(Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
-                                TextField(
-                                    value = pageSearchQuery,
-                                    onValueChange = { pageSearchQuery = it },
-                                    placeholder = { Text(when (state.selectedTab) {
+                                ExpressiveContainedSearchBar(
+                                    query = pageSearchQuery,
+                                    onQueryChange = { pageSearchQuery = it },
+                                    placeholderText = when (state.selectedTab) {
                                         1 -> "Search groups"
                                         2 -> "Search calls"
                                         else -> "Search people or messages"
-                                    }) },
-                                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                                    singleLine = true,
-                                    shape = CircleShape,
-                                    colors = TextFieldDefaults.colors(
-                                        focusedIndicatorColor = Color.Transparent,
-                                        unfocusedIndicatorColor = Color.Transparent,
-                                        disabledIndicatorColor = Color.Transparent,
-                                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                                    ),
-                                    modifier = Modifier.fillMaxWidth().height(56.dp).testTag("chat_search_input")
+                                    },
+                                    recentSearches = recentSearches,
+                                    onAddRecentSearch = addRecentSearch,
+                                    onRemoveRecentSearch = removeRecentSearch,
+                                    onClearRecentSearches = clearRecentSearches,
+                                    conversations = conversations,
+                                    friends = friends,
+                                    onOpenConversation = onOpenConversation,
+                                    onOpenProfile = onOpenProfile,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    testTag = "chat_search_input"
                                 )
                             }
                         }
                     }
                 },
-                bottomBar = {},
+                bottomBar = {
+                    NavigationBar(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    ) {
+                        destinations.forEachIndexed { index, destination ->
+                            NavigationBarItem(
+                                selected = state.selectedTab == index,
+                                onClick = { viewModel.selectTab(index) },
+                                icon = {
+                                    BadgedBox(
+                                        badge = {
+                                            if (destination.badgeCount > 0) {
+                                                Badge { Text("${destination.badgeCount}") }
+                                            }
+                                        }
+                                    ) {
+                                        if (state.selectedTab == index) {
+                                            Icon(destination.icon, contentDescription = destination.label)
+                                        } else {
+                                            Icon(destination.unselectedIcon, contentDescription = destination.label)
+                                        }
+                                    }
+                                },
+                                label = { Text(destination.label) }
+                            )
+                        }
+                    }
+                },
                 floatingActionButton = {
                     ExpressiveFabMenu(
                         expanded = fabOpen,
@@ -459,8 +862,10 @@ fun HomeScreen(
                         ) { tab ->
                             when (tab) {
                                 1 -> M3ChatsTab(groupConversations, onOpenConversation, onNavigateToNewGroup,
-                                    state.isSyncing, viewModel::sync, scopeKey = "groups", searchQuery = pageSearchQuery,
+                                    state.isSyncing, viewModel::sync, scopeKey = "groups", searchQuery = null,
                                     onSearchQueryChange = { pageSearchQuery = it }, showSearchField = false, onOpenProfile = onOpenProfile,
+                                    recentSearches = recentSearches, onAddRecentSearch = addRecentSearch,
+                                    onRemoveRecentSearch = removeRecentSearch, onClearRecentSearches = clearRecentSearches,
                                     isAppVisible = isAppVisible)
                                 2 -> {
                                     val callHistory by viewModel.callHistory.collectAsState()
@@ -469,14 +874,19 @@ fun HomeScreen(
                                         conversations = conversations,
                                         friends = friends,
                                         myUserId = viewModel.authRepository.myUserId,
-                                        searchQuery = pageSearchQuery,
+                                        searchQuery = null,
                                         onStartCall = onStartCall,
-                                        onOpenConversation = onOpenConversation
+                                        onOpenConversation = onOpenConversation,
+                                        recentSearches = recentSearches,
+                                        onAddRecentSearch = addRecentSearch,
+                                        onRemoveRecentSearch = removeRecentSearch,
+                                        onClearRecentSearches = clearRecentSearches,
+                                        isAppVisible = isAppVisible
                                     )
                                 }
                                 else -> M3ChatsTab(directConversations, onOpenConversation, onNavigateToNewGroup,
                                     state.isSyncing, viewModel::sync, friends, onOpenAddFriends,
-                                    state.favoriteFriendIds, scopeKey = "chats", searchQuery = pageSearchQuery,
+                                    state.favoriteFriendIds, scopeKey = "chats", searchQuery = null,
                                     onSearchQueryChange = { pageSearchQuery = it }, showSearchField = false, onOpenProfile = onOpenProfile,
                                     homeListState = chatListState,
                                     sheetExpansionPx = chatSurfaceExpansionPx,
@@ -485,36 +895,15 @@ fun HomeScreen(
                                     onOpenConversationWithFriend = { friend ->
                                         viewModel.openConversationWithFriend(friend, onOpenConversation)
                                     },
+                                    recentSearches = recentSearches, onAddRecentSearch = addRecentSearch,
+                                    onRemoveRecentSearch = removeRecentSearch, onClearRecentSearches = clearRecentSearches,
                                     isAppVisible = isAppVisible)
                             }
                         }
                     }
                 }
             }
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-            Box(Modifier.widthIn(max = 1040.dp).fillMaxSize(), contentAlignment = Alignment.TopEnd) {
-                val dockHalfHeightPx = with(LocalDensity.current) { 73.dp.roundToPx() }
-                val selectedDestination = navigationDockItems[state.selectedTab.coerceIn(navigationDockItems.indices)]
-                FluidSidebarDock(
-                    items = navigationDockItems,
-                    selectedCategoryId = selectedDestination.id,
-                    onCategorySelected = { item ->
-                        val index = navigationDockItems.indexOfFirst { it.id == item.id }
-                        if (index >= 0) viewModel.selectTab(index)
-                    },
-                    onCategoryActivated = { item ->
-                        val index = navigationDockItems.indexOfFirst { it.id == item.id }
-                        if (index >= 0) viewModel.selectTab(index)
-                    },
-                    modifier = Modifier
-                        .offset {
-                            IntOffset(x = 0, y = if (yourCircleCenterYInRootPx == 0) 0 else yourCircleCenterYInRootPx - dockHalfHeightPx)
-                        }
-                        .testTag("navigation_sidebar_dock")
-                )
-            }
         }
-    }
 
     if (state.showSupabaseDialog) {
         M3SupabaseAlertDialog(state.supabaseUrlInput, state.supabaseKeyInput,
@@ -534,6 +923,10 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                onChatListOverflowChange: (Boolean) -> Unit = {},
                onYourCircleCenterMeasured: (Int) -> Unit = {},
                onOpenConversationWithFriend: (ProfileEntity) -> Unit = {},
+               recentSearches: List<String> = emptyList(),
+               onAddRecentSearch: (String) -> Unit = {},
+               onRemoveRecentSearch: (String) -> Unit = {},
+               onClearRecentSearches: () -> Unit = {},
                isAppVisible: Boolean = true) {
     var localQuery by remember(scopeKey) { mutableStateOf("") }
     val query = searchQuery ?: localQuery
@@ -597,12 +990,16 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                 ) {
             if (showSearchField) {
                 item {
-                    OutlinedTextField(
-                        value = query, onValueChange = updateQuery,
-                        placeholder = { Text("Search people or messages") },
-                        leadingIcon = { Icon(Icons.Default.Search, null) },
-                        singleLine = true, shape = CircleShape,
-                        modifier = Modifier.fillMaxWidth().height(56.dp).padding(start = horizontalMargin, end = horizontalMargin, bottom = 16.dp).testTag("chat_search_input")
+                    ExpressiveContainedSearchBar(
+                        query = query,
+                        onQueryChange = updateQuery,
+                        placeholderText = if (scopeKey == "groups") "Search groups" else "Search people or messages",
+                        recentSearches = recentSearches,
+                        onAddRecentSearch = onAddRecentSearch,
+                        onRemoveRecentSearch = onRemoveRecentSearch,
+                        onClearRecentSearches = onClearRecentSearches,
+                        modifier = Modifier.fillMaxWidth().padding(start = horizontalMargin, end = horizontalMargin, bottom = 16.dp),
+                        testTag = "chat_search_input"
                     )
                 }
             }
@@ -612,29 +1009,52 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                         visible = filter == 0 && query.isBlank(),
                         enter = expandVertically(
                             expandFrom = Alignment.Top,
-                            animationSpec = tween(ExpressiveMotion.DurationMedium2, easing = ExpressiveMotion.EmphasizedDecelerateEasing)
-                        ) + fadeIn(animationSpec = tween(ExpressiveMotion.DurationShort4)),
-                        exit = fadeOut(animationSpec = tween(ExpressiveMotion.DurationShort2)) + shrinkVertically(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        ) + fadeIn(
+                            animationSpec = tween(durationMillis = 380, easing = ExpressiveMotion.EmphasizedDecelerateEasing)
+                        ) + scaleIn(
+                            initialScale = 0.94f,
+                            transformOrigin = TransformOrigin(0.5f, 0f),
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        ),
+                        exit = shrinkVertically(
                             shrinkTowards = Alignment.Top,
-                            animationSpec = tween(ExpressiveMotion.DurationMedium1, easing = ExpressiveMotion.EmphasizedAccelerateEasing)
+                            animationSpec = tween(durationMillis = 360, easing = ExpressiveMotion.EmphasizedAccelerateEasing)
+                        ) + fadeOut(
+                            animationSpec = tween(durationMillis = 300, easing = ExpressiveMotion.EmphasizedAccelerateEasing)
+                        ) + scaleOut(
+                            targetScale = 0.94f,
+                            transformOrigin = TransformOrigin(0.5f, 0f),
+                            animationSpec = tween(durationMillis = 360, easing = ExpressiveMotion.EmphasizedAccelerateEasing)
                         )
                     ) {
                         Surface(
-                            shape = MaterialTheme.shapes.extraLarge,
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            color = Color.Transparent,
+                            contentColor = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = horizontalMargin)
                                 .onGloballyPositioned { coordinates ->
                                     onYourCircleCenterMeasured(
                                         coordinates.positionInRoot().y.roundToInt() + coordinates.size.height / 2
                                     )
                                 }
                         ) {
-                            Column(Modifier.padding(start = 16.dp, end = 14.dp, top = 14.dp, bottom = 12.dp)) {
-                                Text("Your Circle", style = MaterialTheme.typography.titleLarge)
+                            Column(Modifier.fillMaxWidth()) {
+                                Text(
+                                    "Your Circle",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    modifier = Modifier.padding(start = horizontalMargin + 16.dp, top = 14.dp, bottom = 4.dp)
+                                )
+                                val itemSpacing = (-16).dp // Negative spacing for overlap
+                                val itemSize = 104.dp 
+                                val avatarSize = 96.dp 
+
                                 val favoriteFriends = remember(friends, favoriteFriendIds) {
                                     favoriteFriendIds.mapNotNull { favId -> friends.firstOrNull { it.id == favId } }
                                 }
@@ -642,94 +1062,316 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                                     Text(
                                         "Favorite friends to keep them close here.",
                                         style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        modifier = Modifier.padding(top = 8.dp)
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(start = horizontalMargin + 16.dp, top = 8.dp, end = horizontalMargin + 16.dp)
                                     )
                                     onAddFriends?.let {
-                                        FilledTonalButton(onClick = it, modifier = Modifier.padding(top = 12.dp)) {
+                                        FilledTonalButton(
+                                            onClick = it,
+                                            modifier = Modifier.padding(start = horizontalMargin + 16.dp, top = 12.dp, bottom = 12.dp)
+                                        ) {
                                             Icon(Icons.Default.PersonAdd, null)
                                             Spacer(Modifier.width(8.dp))
                                             Text("Add friends")
                                         }
                                     }
                                 } else {
-                                    Spacer(Modifier.height(10.dp))
-                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    val circleFriendsRowState = rememberLazyListState()
+
+                                    LazyRow(
+                                        state = circleFriendsRowState,
+                                        contentPadding = PaddingValues(
+                                            start = horizontalMargin + 16.dp,
+                                            end = horizontalMargin + 16.dp,
+                                            top = 12.dp,
+                                            bottom = 16.dp
+                                        ),
+                                        horizontalArrangement = Arrangement.spacedBy(itemSpacing),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
                                         onAddFriends?.let {
                                             item {
+                                                val circleEntrance = remember { Animatable(0f) }
+                                                LaunchedEffect(isAppVisible) {
+                                                    if (isAppVisible) {
+                                                        circleEntrance.animateTo(
+                                                            targetValue = 1f,
+                                                            animationSpec = tween(
+                                                                durationMillis = 750,
+                                                                easing = ExpressiveMotion.EmphasizedDecelerateEasing
+                                                            )
+                                                        )
+                                                    }
+                                                }
+
                                                 Surface(
                                                     onClick = it,
+                                                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                                                        color = Color.Transparent,
+                                                        modifier = Modifier
+                                                            .width(itemSize)
+                                                            .zIndex(favoriteFriends.size + 1f)
+                                                            .graphicsLayer {
+                                                                val itemInfo = circleFriendsRowState.layoutInfo.visibleItemsInfo.firstOrNull { info -> info.index == 0 }
+                                                                val edgeScale = if (itemInfo != null) {
+                                                                    val viewportStart = circleFriendsRowState.layoutInfo.viewportStartOffset.toFloat()
+                                                                    val itemStart = itemInfo.offset.toFloat() - viewportStart
+                                                                    val edgeMargin = itemInfo.size.toFloat() * 0.85f
+
+                                                                    if (itemStart < 0f) {
+                                                                        (1f + (itemStart / edgeMargin)).coerceIn(0.2f, 1f)
+                                                                    } else {
+                                                                        val firstVisibleIndex = circleFriendsRowState.firstVisibleItemIndex
+                                                                        val scrollOffset = circleFriendsRowState.firstVisibleItemScrollOffset.toFloat()
+                                                                        val slotWidth = (itemInfo.size.toFloat() * 0.85f).coerceAtLeast(1f)
+                                                                        val scrollFraction = (scrollOffset / slotWidth).coerceIn(0f, 1f)
+
+                                                                        val effectivePos = -firstVisibleIndex - scrollFraction
+                                                                        val startScale = if (effectivePos <= 2f) 1f else (1f - ((effectivePos - 2f) * 0.35f)).coerceIn(0.3f, 1f)
+
+                                                                        val totalItems = circleFriendsRowState.layoutInfo.totalItemsCount
+                                                                        val itemsFromEnd = (totalItems - 1) - 0
+
+                                                                        if (totalItems <= 3 || itemsFromEnd > 2) {
+                                                                            startScale
+                                                                        } else {
+                                                                            val lastItemInfo = circleFriendsRowState.layoutInfo.visibleItemsInfo.lastOrNull { info -> info.index == totalItems - 1 }
+                                                                            if (lastItemInfo != null) {
+                                                                                val viewportEnd = circleFriendsRowState.layoutInfo.viewportEndOffset.toFloat()
+                                                                                val lastItemEnd = (lastItemInfo.offset + lastItemInfo.size).toFloat() - viewportStart
+                                                                                val endProximity = (1f - ((lastItemEnd - viewportEnd) / (lastItemInfo.size.toFloat() * 1.2f))).coerceIn(0f, 1f)
+                                                                                maxOf(startScale, endProximity)
+                                                                            } else startScale
+                                                                        }
+                                                                    }
+                                                                } else 1f
+
+                                                                val baseScale = 0.85f + (circleEntrance.value * 0.15f)
+                                                                val finalScale = baseScale * edgeScale
+
+                                                                alpha = circleEntrance.value * edgeScale.coerceIn(0.4f, 1f)
+                                                                scaleX = finalScale
+                                                                scaleY = finalScale
+                                                                rotationZ = (1f - circleEntrance.value) * 30f
+                                                            }
+                                                    ) {
+                                                        Column(
+                                                            Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
+                                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                                        ) {
+                                                            Surface(
+                                                                shape = ExpressiveStarShape,
+                                                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                                                modifier = Modifier.size(avatarSize)
+                                                            ) {
+                                                                Icon(
+                                                                    Icons.Default.PersonAdd, 
+                                                                    contentDescription = "Add friends", 
+                                                                    tint = MaterialTheme.colorScheme.onSurface,
+                                                                    modifier = Modifier.padding(avatarSize / 3.5f)
+                                                                )
+                                                            }
+                                                            Text("Add", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            itemsIndexed(favoriteFriends, key = { _, it -> it.id }) { index, friend ->
+                                                val conversation = conversations.firstOrNull { it.otherUserId == friend.id && it.type == "direct" }
+                                                val assignedShape = ExpressiveShapesList[(index + 1) % ExpressiveShapesList.size]
+
+                                                val circleEntrance = remember { Animatable(0f) }
+                                                LaunchedEffect(isAppVisible, friend.id) {
+                                                    if (isAppVisible) {
+                                                        delay((index * 40).coerceAtMost(200).toLong())
+                                                        circleEntrance.animateTo(
+                                                            targetValue = 1f,
+                                                            animationSpec = tween(
+                                                                durationMillis = 750,
+                                                                easing = ExpressiveMotion.EmphasizedDecelerateEasing
+                                                            )
+                                                        )
+                                                    }
+                                                }
+
+                                                val itemIndex = if (onAddFriends != null) index + 1 else index
+
+                                                Surface(
+                                                    onClick = {
+                                                        conversation?.let { onOpenConversation(it.id) }
+                                                            ?: onOpenConversationWithFriend(friend)
+                                                    },
                                                     shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
                                                     color = Color.Transparent,
-                                                    modifier = Modifier.width(92.dp)
+                                                    contentColor = MaterialTheme.colorScheme.onSurface,
+                                                    modifier = Modifier
+                                                        .width(itemSize)
+                                                        .testTag("circle_friend_${friend.id}")
+                                                        .zIndex(favoriteFriends.size - index.toFloat())
+                                                        .graphicsLayer {
+                                                            val itemInfo = circleFriendsRowState.layoutInfo.visibleItemsInfo.firstOrNull { info -> info.index == itemIndex }
+                                                            val edgeScale = if (itemInfo != null) {
+                                                                val viewportStart = circleFriendsRowState.layoutInfo.viewportStartOffset.toFloat()
+                                                                val itemStart = itemInfo.offset.toFloat() - viewportStart
+                                                                val edgeMargin = itemInfo.size.toFloat() * 0.85f
+
+                                                                if (itemStart < 0f) {
+                                                                    (1f + (itemStart / edgeMargin)).coerceIn(0.2f, 1f)
+                                                                } else {
+                                                                    val firstVisibleIndex = circleFriendsRowState.firstVisibleItemIndex
+                                                                    val scrollOffset = circleFriendsRowState.firstVisibleItemScrollOffset.toFloat()
+                                                                    val slotWidth = (itemInfo.size.toFloat() * 0.85f).coerceAtLeast(1f)
+                                                                    val scrollFraction = (scrollOffset / slotWidth).coerceIn(0f, 1f)
+
+                                                                    val effectivePos = (itemIndex - firstVisibleIndex) - scrollFraction
+                                                                    val startScale = if (effectivePos <= 2f) 1f else (1f - ((effectivePos - 2f) * 0.35f)).coerceIn(0.3f, 1f)
+
+                                                                    val totalItems = circleFriendsRowState.layoutInfo.totalItemsCount
+                                                                    val itemsFromEnd = (totalItems - 1) - itemIndex
+
+                                                                    if (totalItems <= 3 || itemsFromEnd > 2) {
+                                                                        startScale
+                                                                    } else {
+                                                                        val lastItemInfo = circleFriendsRowState.layoutInfo.visibleItemsInfo.lastOrNull { info -> info.index == totalItems - 1 }
+                                                                        if (lastItemInfo != null) {
+                                                                            val viewportEnd = circleFriendsRowState.layoutInfo.viewportEndOffset.toFloat()
+                                                                            val lastItemEnd = (lastItemInfo.offset + lastItemInfo.size).toFloat() - viewportStart
+                                                                            val endProximity = (1f - ((lastItemEnd - viewportEnd) / (lastItemInfo.size.toFloat() * 1.2f))).coerceIn(0f, 1f)
+                                                                            maxOf(startScale, endProximity)
+                                                                        } else startScale
+                                                                    }
+                                                                }
+                                                            } else 1f
+
+                                                            val baseScale = 0.85f + (circleEntrance.value * 0.15f)
+                                                            val finalScale = baseScale * edgeScale
+
+                                                            alpha = circleEntrance.value * edgeScale.coerceIn(0.4f, 1f)
+                                                            scaleX = finalScale
+                                                            scaleY = finalScale
+                                                            rotationZ = (1f - circleEntrance.value) * 30f
+                                                        }
                                                 ) {
                                                     Column(
-                                                        Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+                                                        Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
                                                         horizontalAlignment = Alignment.CenterHorizontally,
                                                         verticalArrangement = Arrangement.spacedBy(6.dp)
                                                     ) {
-                                                        Surface(
-                                                            shape = ExpressiveStarShape,
-                                                            color = MaterialTheme.colorScheme.secondaryContainer,
-                                                            modifier = Modifier.size(80.dp)
-                                                        ) {
-                                                            Icon(Icons.Default.PersonAdd, contentDescription = "Add friends", modifier = Modifier.padding(24.dp))
-                                                        }
-                                                        Text("Add", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                                                        ExpressiveAvatar(
+                                                            friend.displayName,
+                                                            friend.avatarPath,
+                                                            avatarSize,
+                                                            shape = assignedShape
+                                                        )
+                                                        Text(friend.displayName, style = MaterialTheme.typography.labelSmall,
+                                                            maxLines = 1, overflow = TextOverflow.Ellipsis)
                                                     }
                                                 }
                                             }
                                         }
-                                        itemsIndexed(favoriteFriends, key = { _, it -> it.id }) { index, friend ->
-                                            val conversation = conversations.firstOrNull { it.otherUserId == friend.id && it.type == "direct" }
-                                            val assignedShape = ExpressiveShapesList[(index + 1) % ExpressiveShapesList.size]
-
-                                            val circleEntrance = remember { Animatable(0f) }
-                                            LaunchedEffect(isAppVisible, friend.id) {
-                                                if (isAppVisible) {
-                                                    delay((index * 40).coerceAtMost(200).toLong())
-                                                    circleEntrance.animateTo(
-                                                        targetValue = 1f,
-                                                        animationSpec = tween(
-                                                            durationMillis = 750,
-                                                            easing = ExpressiveMotion.EmphasizedDecelerateEasing
+                                    }
+                                    
+                                    val favoriteGroups = remember(conversations) {
+                                        conversations.filter { it.type == "group" }.take(3)
+                                    }
+                                    
+                                    if (favoriteGroups.isNotEmpty()) {
+                                        val circleGroupsRowState = rememberLazyListState()
+                                        LazyRow(
+                                            state = circleGroupsRowState,
+                                            contentPadding = PaddingValues(
+                                                start = horizontalMargin + 16.dp,
+                                                end = horizontalMargin + 16.dp,
+                                                top = 4.dp,
+                                                bottom = 16.dp
+                                            ),
+                                            horizontalArrangement = Arrangement.spacedBy(itemSpacing),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            itemsIndexed(favoriteGroups, key = { _, it -> it.id }) { index, group ->
+                                                val assignedShape = ExpressiveShapesList[(index + 3) % ExpressiveShapesList.size]
+                                                
+                                                val circleEntrance = remember { Animatable(0f) }
+                                                LaunchedEffect(isAppVisible, group.id) {
+                                                    if (isAppVisible) {
+                                                        delay(((index + favoriteFriends.size) * 40).coerceAtMost(200).toLong())
+                                                        circleEntrance.animateTo(
+                                                            targetValue = 1f,
+                                                            animationSpec = tween(
+                                                                durationMillis = 750,
+                                                                easing = ExpressiveMotion.EmphasizedDecelerateEasing
+                                                            )
                                                         )
-                                                    )
-                                                }
-                                            }
-
-                                            Surface(
-                                                onClick = {
-                                                    conversation?.let { onOpenConversation(it.id) }
-                                                        ?: onOpenConversationWithFriend(friend)
-                                                },
-                                                shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-                                                color = Color.Transparent,
-                                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                modifier = Modifier
-                                                    .width(104.dp)
-                                                    .testTag("circle_friend_${friend.id}")
-                                                    .graphicsLayer {
-                                                        alpha = circleEntrance.value
-                                                        scaleX = 0.85f + (circleEntrance.value * 0.15f)
-                                                        scaleY = 0.85f + (circleEntrance.value * 0.15f)
-                                                        rotationZ = (1f - circleEntrance.value) * 30f
                                                     }
-                                            ) {
-                                                Column(
-                                                    Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
-                                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                                }
+                                                
+                                                Surface(
+                                                    onClick = { onOpenConversation(group.id) },
+                                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                                                    color = Color.Transparent,
+                                                    contentColor = MaterialTheme.colorScheme.onSurface,
+                                                    modifier = Modifier
+                                                        .width(itemSize)
+                                                        .graphicsLayer {
+                                                            val itemInfo = circleGroupsRowState.layoutInfo.visibleItemsInfo.firstOrNull { info -> info.index == index }
+                                                            val edgeScale = if (itemInfo != null) {
+                                                                val viewportStart = circleGroupsRowState.layoutInfo.viewportStartOffset.toFloat()
+                                                                val itemStart = itemInfo.offset.toFloat() - viewportStart
+                                                                val edgeMargin = itemInfo.size.toFloat() * 0.85f
+
+                                                                if (itemStart < 0f) {
+                                                                    (1f + (itemStart / edgeMargin)).coerceIn(0.2f, 1f)
+                                                                } else {
+                                                                    val firstVisibleIndex = circleGroupsRowState.firstVisibleItemIndex
+                                                                    val scrollOffset = circleGroupsRowState.firstVisibleItemScrollOffset.toFloat()
+                                                                    val slotWidth = (itemInfo.size.toFloat() * 0.85f).coerceAtLeast(1f)
+                                                                    val scrollFraction = (scrollOffset / slotWidth).coerceIn(0f, 1f)
+
+                                                                    val effectivePos = (index - firstVisibleIndex) - scrollFraction
+                                                                    val startScale = if (effectivePos <= 2f) 1f else (1f - ((effectivePos - 2f) * 0.35f)).coerceIn(0.3f, 1f)
+
+                                                                    val totalItems = circleGroupsRowState.layoutInfo.totalItemsCount
+                                                                    val itemsFromEnd = (totalItems - 1) - index
+
+                                                                    if (totalItems <= 3 || itemsFromEnd > 2) {
+                                                                        startScale
+                                                                    } else {
+                                                                        val lastItemInfo = circleGroupsRowState.layoutInfo.visibleItemsInfo.lastOrNull { info -> info.index == totalItems - 1 }
+                                                                        if (lastItemInfo != null) {
+                                                                            val viewportEnd = circleGroupsRowState.layoutInfo.viewportEndOffset.toFloat()
+                                                                            val lastItemEnd = (lastItemInfo.offset + lastItemInfo.size).toFloat() - viewportStart
+                                                                            val endProximity = (1f - ((lastItemEnd - viewportEnd) / (lastItemInfo.size.toFloat() * 1.2f))).coerceIn(0f, 1f)
+                                                                            maxOf(startScale, endProximity)
+                                                                        } else startScale
+                                                                    }
+                                                                }
+                                                            } else 1f
+
+                                                            val baseScale = 0.85f + (circleEntrance.value * 0.15f)
+                                                            val finalScale = baseScale * edgeScale
+
+                                                            alpha = circleEntrance.value * edgeScale.coerceIn(0.4f, 1f)
+                                                            scaleX = finalScale
+                                                            scaleY = finalScale
+                                                            rotationZ = (1f - circleEntrance.value) * 30f
+                                                        }
+                                                        .zIndex(favoriteGroups.size - index.toFloat())
                                                 ) {
-                                                    ExpressiveAvatar(
-                                                        friend.displayName,
-                                                        friend.avatarPath,
-                                                        80.dp,
-                                                        shape = assignedShape,
-                                                        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.35f))
-                                                    )
-                                                    Text(friend.displayName, style = MaterialTheme.typography.labelSmall,
-                                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                    Column(
+                                                        Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
+                                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                                    ) {
+                                                        ExpressiveAvatar(
+                                                            group.title ?: "Group",
+                                                            group.avatarPath,
+                                                            avatarSize,
+                                                            shape = assignedShape
+                                                        )
+                                                        Text(group.title ?: "Group", style = MaterialTheme.typography.labelSmall,
+                                                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                    }
                                                 }
                                             }
                                         }
@@ -739,11 +1381,15 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                         }
                     }
                 }
-            }
             item {
                 Row(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp, start = horizontalMargin, end = horizontalMargin), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text(if (filter == 0) "Recent messages" else "Your conversations", style = MaterialTheme.typography.titleLarge)
+                        val sectionHeaderTitle = when {
+                            scopeKey == "groups" -> "Your groups"
+                            filter == 0 -> "Recent messages"
+                            else -> "Your conversations"
+                        }
+                        Text(sectionHeaderTitle, style = MaterialTheme.typography.titleLarge)
                     }
                 }
             }
@@ -754,25 +1400,28 @@ fun M3ChatsTab(conversations: List<ConversationEntity>, onOpenConversation: (Str
                     modifier = Modifier.padding(bottom = 12.dp)
                 ) {
                     itemsIndexed(filters) { index, label ->
-                        FilterChip(
-                            selected = filter == index,
-                            onClick = { filter = index },
-                            label = {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text(label)
-                                    if (label == "Unread") {
-                                        val totalUnread = conversations.count { it.unreadCount > 0 }
-                                        if (totalUnread > 0) {
-                                            Badge(
-                                                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                                                contentColor = MaterialTheme.colorScheme.onTertiaryContainer
-                                            ) { Text("$totalUnread") }
-                                        }
+                        val isSelected = filter == index
+                        ToggleButton(
+                            checked = isSelected,
+                            onCheckedChange = { filter = index },
+                            modifier = Modifier.testTag("filter_$label")
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(label)
+                                if (label == "Unread") {
+                                    val totalUnread = conversations.count { it.unreadCount > 0 }
+                                    if (totalUnread > 0) {
+                                        Badge(
+                                            containerColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.tertiaryContainer,
+                                            contentColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.onTertiaryContainer
+                                        ) { Text("$totalUnread") }
                                     }
                                 }
-                            },
-                            shape = CircleShape
-                        )
+                            }
+                        }
                     }
                 }
             }
@@ -1056,131 +1705,267 @@ fun M3CallsTab(
     conversations: List<ConversationEntity> = emptyList(),
     friends: List<ProfileEntity> = emptyList(),
     myUserId: String = "",
-    searchQuery: String = "",
+    searchQuery: String? = null,
+    onSearchQueryChange: ((String) -> Unit)? = null,
+    showSearchField: Boolean = false,
     onStartCall: (String) -> Unit = {},
-    onOpenConversation: (String) -> Unit = {}
+    onOpenConversation: (String) -> Unit = {},
+    homeListState: LazyListState? = null,
+    sheetExpansionPx: Float = 0f,
+    onCallListOverflowChange: (Boolean) -> Unit = {},
+    recentSearches: List<String> = emptyList(),
+    onAddRecentSearch: (String) -> Unit = {},
+    onRemoveRecentSearch: (String) -> Unit = {},
+    onClearRecentSearches: () -> Unit = {},
+    isAppVisible: Boolean = true,
+    isRefreshing: Boolean = false,
+    onRefresh: () -> Unit = {}
 ) {
-    val filteredCalls = remember(callHistory, searchQuery) {
-        if (searchQuery.isBlank()) callHistory else callHistory.filter {
-            it.plaintextBody.contains(searchQuery, ignoreCase = true) ||
-            it.senderName?.contains(searchQuery, ignoreCase = true) == true
+    var localQuery by remember { mutableStateOf("") }
+    val query = searchQuery ?: localQuery
+    var filter by remember { mutableIntStateOf(0) }
+    val filters = listOf("All", "Missed", "Outgoing", "Incoming")
+    val horizontalMargin = if (LocalConfiguration.current.screenWidthDp >= 600) 24.dp else 16.dp
+
+    val filteredCalls = remember(callHistory, query, filter, myUserId) {
+        callHistory.filter { call ->
+            val rawBody = call.plaintextBody.removePrefix("[Call]").trim()
+            val isOutgoing = call.senderId == myUserId
+            val isMissed = rawBody.startsWith("Missed", ignoreCase = true)
+            val isIncoming = !isOutgoing && !isMissed
+
+            val matchesFilter = when (filter) {
+                1 -> isMissed
+                2 -> isOutgoing
+                3 -> isIncoming
+                else -> true
+            }
+            val matchesSearch = query.isBlank() || listOfNotNull(call.plaintextBody, call.senderName).any { it.contains(query, true) }
+            matchesFilter && matchesSearch
         }
     }
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        shape = RectangleShape,
-        color = MaterialTheme.colorScheme.surfaceContainerLow
+    val listState = homeListState ?: rememberLazyListState()
+
+    LaunchedEffect(listState, filteredCalls) {
+        val callKeys = filteredCalls.map { it.id }.toSet()
+        snapshotFlow {
+            val atTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+            if (!atTop || listState.layoutInfo.totalItemsCount == 0) null
+            else {
+                val layoutInfo = listState.layoutInfo
+                val visibleItems = layoutInfo.visibleItemsInfo.filter { it.key in callKeys }
+                val allFit = visibleItems.size == callKeys.size && visibleItems.all {
+                    it.offset >= layoutInfo.viewportStartOffset && it.offset + it.size <= layoutInfo.viewportEndOffset
+                }
+                callKeys.isNotEmpty() && !allFit
+            }
+        }.filterNotNull().distinctUntilChanged().collect(onCallListOverflowChange)
+    }
+
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = onRefresh,
+        modifier = Modifier.fillMaxSize()
     ) {
-        Column(
-            Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)
-        ) {
-            Text("RECENT ACTIVITY", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-            Text("Call history", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(bottom = 12.dp))
-
-            if (filteredCalls.isEmpty()) {
-                ExpressiveEmptyState(
-                    title = if (searchQuery.isBlank()) "No calls yet" else "No matching calls",
-                    description = if (searchQuery.isBlank()) "Your recent calls will appear here." else "Try another search.",
-                    icon = { Icon(Icons.Default.Call, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(40.dp)) }
-                )
-            } else {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    itemsIndexed(filteredCalls, key = { _, item -> item.id }) { _, call ->
-                        val conv = conversations.firstOrNull { it.id == call.conversationId }
-                        val peerUserId = conv?.otherUserId ?: if (call.senderId != myUserId) call.senderId else call.recipientId ?: ""
-                        val peerFriend = friends.firstOrNull { it.id == peerUserId }
-                        val title = conv?.title ?: peerFriend?.displayName ?: call.senderName ?: "Call"
-                        val avatarUrl = conv?.avatarPath ?: peerFriend?.avatarPath
-                        
-                        val isOutgoing = call.senderId == myUserId
-                        val rawBody = call.plaintextBody.removePrefix("[Call]").trim()
-                        val isMissed = rawBody.startsWith("Missed", ignoreCase = true)
-
-                        val time = remember(call.timestamp) {
-                            if (call.timestamp == 0L) "" else {
-                                val date = Date(call.timestamp)
-                                val hours = (System.currentTimeMillis() - date.time) / 3_600_000
-                                SimpleDateFormat(if (hours < 24) "HH:mm" else "MMM d", Locale.getDefault()).format(date)
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val expansion = with(LocalDensity.current) { sheetExpansionPx.toDp() }
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .requiredHeight(maxHeight + expansion)
+                    .align(Alignment.BottomCenter),
+                shape = ExpressiveTopSurfaceShape,
+                color = MaterialTheme.colorScheme.surfaceContainerLow
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier
+                            .widthIn(max = 1040.dp)
+                            .fillMaxSize(),
+                        contentPadding = PaddingValues(top = 20.dp, bottom = 104.dp)
+                    ) {
+                        if (showSearchField && onSearchQueryChange != null) {
+                            item {
+                                ExpressiveContainedSearchBar(
+                                    query = query,
+                                    onQueryChange = onSearchQueryChange,
+                                    placeholderText = "Search calls",
+                                    recentSearches = recentSearches,
+                                    onAddRecentSearch = onAddRecentSearch,
+                                    onRemoveRecentSearch = onRemoveRecentSearch,
+                                    onClearRecentSearches = onClearRecentSearches,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = horizontalMargin, end = horizontalMargin, bottom = 16.dp),
+                                    testTag = "call_search_input"
+                                )
                             }
                         }
 
-                        Surface(
-                            onClick = {
-                                if (call.conversationId.isNotBlank()) onOpenConversation(call.conversationId)
-                                else if (peerUserId.isNotBlank()) onStartCall(peerUserId)
-                            },
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surface,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            ListItem(
-                                leadingContent = {
-                                    ExpressiveAvatar(name = title, avatarUrl = avatarUrl, size = 48.dp)
-                                },
-                                headlineContent = {
-                                    Text(
-                                        text = title,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                },
-                                supportingContent = {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        item {
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp, bottom = 8.dp, start = horizontalMargin, end = horizontalMargin),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Recent calls", style = MaterialTheme.typography.titleLarge)
+                                }
+                            }
+                        }
+
+                        item {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = horizontalMargin),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(bottom = 12.dp)
+                            ) {
+                                itemsIndexed(filters) { index, label ->
+                                    val isSelected = filter == index
+                                    ToggleButton(
+                                        checked = isSelected,
+                                        onCheckedChange = { filter = index },
+                                        modifier = Modifier.testTag("filter_calls_$label")
                                     ) {
-                                        Icon(
-                                            imageVector = when {
-                                                isMissed -> Icons.Default.CallMissed
-                                                isOutgoing -> Icons.Default.CallMade
-                                                else -> Icons.Default.CallReceived
-                                            },
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp),
-                                            tint = if (isMissed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                                        )
-                                        Text(
-                                            text = if (rawBody.isBlank()) "Voice Call" else rawBody,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = if (isMissed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                        Text(label)
+                                    }
+                                }
+                            }
+                        }
+
+                        if (filteredCalls.isEmpty()) {
+                            item {
+                                ExpressiveEmptyState(
+                                    title = if (query.isNotBlank()) "No matching calls" else "No recent calls",
+                                    description = if (query.isNotBlank()) "Try another search term." else "Your calls will appear here after you make or receive one.",
+                                    icon = { Icon(Icons.Default.Call, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(42.dp)) },
+                                    modifier = Modifier.padding(horizontal = horizontalMargin)
+                                )
+                            }
+                        } else {
+                            itemsIndexed(filteredCalls, key = { _, item -> item.id }) { index, call ->
+                                val conv = conversations.firstOrNull { it.id == call.conversationId }
+                                val peerUserId = conv?.otherUserId ?: if (call.senderId != myUserId) call.senderId else call.recipientId ?: ""
+                                val peerFriend = friends.firstOrNull { it.id == peerUserId }
+                                val title = conv?.title ?: peerFriend?.displayName ?: call.senderName ?: "Call"
+                                val avatarUrl = conv?.avatarPath ?: peerFriend?.avatarPath
+                                
+                                val isOutgoing = call.senderId == myUserId
+                                val rawBody = call.plaintextBody.removePrefix("[Call]").trim()
+                                val isMissed = rawBody.startsWith("Missed", ignoreCase = true)
+
+                                val time = remember(call.timestamp) {
+                                    if (call.timestamp == 0L) "" else {
+                                        val date = Date(call.timestamp)
+                                        val hours = (System.currentTimeMillis() - date.time) / 3_600_000
+                                        SimpleDateFormat(if (hours < 24) "HH:mm" else "MMM d", Locale.getDefault()).format(date)
+                                    }
+                                }
+
+                                val shape = when {
+                                    filteredCalls.size == 1 -> RoundedCornerShape(24.dp)
+                                    index == 0 -> RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
+                                    index == filteredCalls.lastIndex -> RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
+                                    else -> RoundedCornerShape(4.dp)
+                                }
+
+                                val itemEntrance = remember { Animatable(0f) }
+                                LaunchedEffect(isAppVisible, call.id) {
+                                    if (isAppVisible) {
+                                        delay((index * 35).coerceAtMost(200).toLong())
+                                        itemEntrance.animateTo(
+                                            targetValue = 1f,
+                                            animationSpec = tween(
+                                                durationMillis = 650,
+                                                easing = ExpressiveMotion.EmphasizedDecelerateEasing
+                                            )
                                         )
                                     }
-                                },
-                                trailingContent = {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        if (time.isNotBlank()) {
+                                }
+
+                                Surface(
+                                    onClick = {
+                                        if (call.conversationId.isNotBlank()) onOpenConversation(call.conversationId)
+                                        else if (peerUserId.isNotBlank()) onStartCall(peerUserId)
+                                    },
+                                    shape = shape,
+                                    color = if (isMissed) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surface,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = horizontalMargin, end = horizontalMargin, bottom = 2.dp)
+                                        .graphicsLayer {
+                                            alpha = itemEntrance.value
+                                            translationY = (1f - itemEntrance.value) * 24.dp.toPx()
+                                        }
+                                ) {
+                                    ListItem(
+                                        leadingContent = {
+                                            ExpressiveAvatar(name = title, avatarUrl = avatarUrl, size = 56.dp)
+                                        },
+                                        headlineContent = {
                                             Text(
-                                                text = time,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                text = title,
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
                                             )
-                                        }
-                                        IconButton(
-                                            onClick = {
-                                                if (peerUserId.isNotBlank()) onStartCall(peerUserId)
+                                        },
+                                        supportingContent = {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = when {
+                                                        isMissed -> Icons.Default.CallMissed
+                                                        isOutgoing -> Icons.Default.CallMade
+                                                        else -> Icons.Default.CallReceived
+                                                    },
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = if (isMissed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                                                )
+                                                Text(
+                                                    text = if (rawBody.isBlank()) "Voice Call" else rawBody,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = if (isMissed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
                                             }
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Call,
-                                                contentDescription = "Call back",
-                                                tint = MaterialTheme.colorScheme.primary
-                                            )
-                                        }
-                                    }
-                                },
-                                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-                            )
+                                        },
+                                        trailingContent = {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                if (time.isNotBlank()) {
+                                                    Text(
+                                                        text = time,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                                FilledTonalIconButton(
+                                                    onClick = {
+                                                        if (peerUserId.isNotBlank()) onStartCall(peerUserId)
+                                                    }
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Call,
+                                                        contentDescription = "Call back"
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
